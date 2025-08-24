@@ -45,6 +45,39 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+/* ================== Crypto (AES helper) ================== */
+/**
+ * IMPORTANT :
+ * - Garde cette clé privée (ne la commit pas en public, mets le repo en privé).
+ * - Le bot DOIT utiliser la même clé pour déchiffrer.
+ */
+const SECRET_KEY = "3k8$Pq9!mZr2@xLw7#yT";
+
+// Vérification basique que CryptoJS est bien dispo
+function assertCryptoReady() {
+  if (typeof CryptoJS === "undefined" || !CryptoJS.AES) {
+    console.error("❌ CryptoJS introuvable. Ajoute le script CDN avant ce fichier.");
+    throw new Error("CryptoJS non chargé");
+  }
+}
+
+function encryptText(plain) {
+  assertCryptoReady();
+  if (typeof plain !== "string") plain = String(plain ?? "");
+  return CryptoJS.AES.encrypt(plain, SECRET_KEY).toString();
+}
+function decryptText(cipher) {
+  assertCryptoReady();
+  if (!cipher || typeof cipher !== "string") return "";
+  try {
+    const bytes = CryptoJS.AES.decrypt(cipher, SECRET_KEY);
+    return bytes.toString(CryptoJS.enc.Utf8) || "";
+  } catch (e) {
+    console.warn("⚠️ Échec déchiffrement (clé invalide / donnée corrompue)", e);
+    return "";
+  }
+}
+
 /* ================== FCM setup (no duplicate imports) ================== */
 let messaging = null;
 let fcmSupported = false;
@@ -57,11 +90,9 @@ let fcmInitialized = false;
 /* ================== Service Worker helper ================== */
 async function ensureServiceWorkerRegistered() {
   if (!("serviceWorker" in navigator)) return null;
-  // register relative to index.html (same folder)
   try {
     const reg = await navigator.serviceWorker.register("./firebase-messaging-sw.js");
     console.log("✅ Service Worker FCM enregistré:", reg);
-    // wait until active
     await navigator.serviceWorker.ready;
     return reg;
   } catch (err) {
@@ -97,7 +128,6 @@ async function enableNotificationsForCurrentUser() {
     return null;
   }
   try {
-    // enregistre le SW si pas déjà
     const swReg = await ensureServiceWorkerRegistered();
 
     const permission = await Notification.requestPermission();
@@ -106,7 +136,6 @@ async function enableNotificationsForCurrentUser() {
       return null;
     }
 
-    // getToken avec registration pour éviter erreurs
     const token = await getToken(messaging, {
       vapidKey: VAPID_KEY,
       serviceWorkerRegistration: swReg ?? undefined
@@ -124,7 +153,6 @@ async function enableNotificationsForCurrentUser() {
       const uRef = doc(db, "users", auth.currentUser.uid);
       const userSnap = await getDoc(uRef);
       const current = userSnap.exists() ? (userSnap.data().fcmTokens || []) : [];
-      // push token if not present
       const newTokens = Array.isArray(current) ? current.filter(t => t !== token).concat([token]) : [token];
       await setDoc(uRef, { fcmTokens: newTokens, fcmUpdatedAt: new Date().toISOString() }, { merge: true });
     } catch (e) {
@@ -191,14 +219,6 @@ const loginSubmitBtn = document.getElementById("loginSubmit");
 const loginGoogleBtn = document.getElementById("loginGoogle");
 
 const trashDiv = document.getElementById("trash");
-/* ================== crype ================== */
-// Chiffrer
-const encryptedPwd = CryptoJS.AES.encrypt(motdepasse, "3k8$Pq9!mZr2@xLw7#yT").toString();
-
-// Déchiffrer
-const decryptedPwd = CryptoJS.AES.decrypt(encryptedPwd, "3k8$Pq9!mZr2@xLw7#yT")
-    .toString(CryptoJS.enc.Utf8);
-
 
 /* ================== State ================== */
 let currentYear = null;
@@ -235,14 +255,13 @@ onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user;
     if (loginBg) loginBg.style.display = "none";
-    // load settings & calendar
+
     await loadUserSettingsOrAsk().catch(console.error);
     const now = new Date();
     currentYear = now.getFullYear();
     currentMonth = now.getMonth();
     await renderCalendar(currentYear, currentMonth).catch(console.error);
 
-    // init notifications (once)
     await ensureServiceWorkerRegistered();
     listenForegroundNotifications();
     if (!fcmInitialized) await enableNotificationsIfAuto();
@@ -289,7 +308,6 @@ async function loadUserSettingsOrAsk() {
       currentUserDoc = snap.data();
       defaultReminder = Number(currentUserDoc.defaultReminder ?? 1) || 1;
     } else {
-      // open settings modal to fill ecole creds
       openParams();
     }
   } catch (e) {
@@ -301,12 +319,16 @@ paramsForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
   ensureAuthed();
   const ecoleUser = userIdInput.value.trim();
-  const ecolePass = userPassInput.value.trim();
+  const ecolePassPlain = userPassInput.value.trim();
   const reminderVal = parseInt(defaultReminderInput.value, 10);
-  if (!ecoleUser || !ecolePass || isNaN(reminderVal) || reminderVal < 0 || reminderVal > 7) {
+  if (!ecoleUser || !ecolePassPlain || isNaN(reminderVal) || reminderVal < 0 || reminderVal > 7) {
     alert("Remplis les paramètres correctement (0-7 jours).");
     return;
   }
+
+  // 🔒 Chiffrement du mot de passe avant Firestore
+  const ecolePass = encryptText(ecolePassPlain);
+
   const userRef = doc(db, "users", currentUser.uid);
   const data = { ecoleUser, ecolePass, defaultReminder: reminderVal };
   try {
@@ -315,16 +337,24 @@ paramsForm?.addEventListener("submit", async (e) => {
     defaultReminder = reminderVal;
     paramsBg.style.display = "none";
     await renderCalendar(currentYear, currentMonth);
+    console.log("✅ Identifiants école stockés (mdp chiffré).");
   } catch (e) {
     console.error("Erreur sauvegarde paramètres", e);
     alert("Erreur: impossible d’enregistrer.");
   }
 });
+
 paramsCancelBtn?.addEventListener("click", () => { paramsBg.style.display = "none"; });
+
 function openParams() {
   ensureAuthed();
+  // Identifiant en clair
   userIdInput.value = currentUserDoc?.ecoleUser || "";
-  userPassInput.value = currentUserDoc?.ecolePass || "";
+
+  // 🔓 Déchiffrer à l’affichage du modal (si présent)
+  const enc = currentUserDoc?.ecolePass;
+  userPassInput.value = enc ? decryptText(enc) : "";
+
   defaultReminderInput.value = currentUserDoc?.defaultReminder ?? defaultReminder ?? 1;
   paramsBg.style.display = "flex";
 }
@@ -393,7 +423,12 @@ async function renderCalendar(year, month) {
 async function loadTasks(year, month) {
   ensureAuthed();
   const tasksRef = collection(db, "devoirs");
-  const q = query(tasksRef, where("ownerUid", "==", currentUser.uid), where("year", "==", year), where("month", "==", month));
+  const q = query(
+    tasksRef,
+    where("ownerUid", "==", currentUser.uid),
+    where("year", "==", year),
+    where("month", "==", month)
+  );
   const snapshot = await getDocs(q);
 
   document.querySelectorAll(".tasks").forEach(div => div.innerHTML = "");
@@ -481,7 +516,7 @@ async function stopDragRappel(e) {
   const taskId = draggedRappel.dataset.id;
   const originalRappelDate = draggedRappel.dataset.rappelDate;
 
-  if (!taskId) { // sécurité
+  if (!taskId) {
     draggedRappel = null;
     return;
   }
@@ -599,17 +634,30 @@ nextMonthBtn.addEventListener("click", () => {
 
 settingsBtn.addEventListener("click", () => { openParams(); });
 
+/* ================== Bot: récupérer creds déchiffrés ================== */
+/**
+ * À appeler côté app/bot quand tu dois te connecter à l'école.
+ * Retourne { identifiant, motdepasse } en clair (en mémoire seulement).
+ * Le stockage Firestore reste chiffré.
+ */
+export async function getEcoleCredentials() { // export si tu importes ce module ailleurs
+  ensureAuthed();
+  const snap = await getDoc(doc(db, "users", currentUser.uid));
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  const identifiant = data.ecoleUser || "";
+  const motdepasse = decryptText(data.ecolePass || "");
+  return { identifiant, motdepasse };
+}
+
 /* ================== Init on load ================== */
 (async () => {
-  // register SW early (safe even if fails)
   await ensureServiceWorkerRegistered();
 
-  // set initial year/month (if not set by auth handler)
   const now = new Date();
   if (currentYear === null) currentYear = now.getFullYear();
   if (currentMonth === null) currentMonth = now.getMonth();
 
-  // render only if already authed (onAuthStateChanged will also render when logged)
   try {
     if (auth.currentUser) {
       currentUser = auth.currentUser;
@@ -618,10 +666,17 @@ settingsBtn.addEventListener("click", () => { openParams(); });
       listenForegroundNotifications();
       if (!fcmInitialized) await enableNotificationsForCurrentUser();
     } else {
-      // show login modal if present
       if (loginBg) loginBg.style.display = "flex";
     }
   } catch (e) {
     console.error("Init error:", e);
   }
 })();
+
+/* ================== (Optionnel) Expose quelques actions pour debug dans la console ================== */
+window.__appDebug = {
+  getEcoleCredentials,
+  encryptText,
+  decryptText,
+  logout: () => signOut(auth)
+};
