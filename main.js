@@ -420,88 +420,49 @@ async function renderCalendar(year, month) {
 }
 
 /* ================== Load tasks (Firestore) ================== */
-async function loadTasks(year, month) {
-  ensureAuthed();
-  const tasksRef = collection(db, "devoirs");
-  const q = query(
-    tasksRef,
-    where("ownerUid", "==", currentUser.uid),
-    where("year", "==", year),
-    where("month", "==", month)
-  );
-  const snapshot = await getDocs(q);
+rappelTaskDiv.addEventListener("mousedown", startDrag);
+rappelTaskDiv.addEventListener("touchstart", startDrag);
 
-  document.querySelectorAll(".tasks").forEach(div => div.innerHTML = "");
+function startDrag(e) {
+  e.preventDefault();
+  draggedRappel = rappelTaskDiv;
+  const rect = rappelTaskDiv.getBoundingClientRect();
 
-  snapshot.forEach(docSnap => {
-    const task = docSnap.data();
-    let rappelDateStr = task.rappelDate;
-    if (!rappelDateStr && task.rappel) {
-      const rappelDate = new Date(task.year, task.month, task.day);
-      rappelDate.setDate(rappelDate.getDate() - (currentUserDoc?.defaultReminder ?? defaultReminder ?? 1));
-      rappelDateStr = formatDate(rappelDate);
-    }
+  if (e.type === "mousedown") {
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+  } else if (e.type === "touchstart") {
+    offsetX = e.touches[0].clientX - rect.left;
+    offsetY = e.touches[0].clientY - rect.top;
+  }
 
-    if (task.rappel && rappelDateStr) {
-      const rappelDiv = document.querySelector(`.date[data-date="${rappelDateStr}"]`);
-      if (rappelDiv) {
-        const rappelTaskDiv = document.createElement("div");
-        rappelTaskDiv.className = "task rappel";
-        rappelTaskDiv.textContent = `Rappel : ${task.matiere} - ${task.titre}`;
-        rappelTaskDiv.title = "Rappel du devoir";
-        rappelTaskDiv.dataset.id = docSnap.id;
-        rappelTaskDiv.dataset.rappelDate = rappelDateStr;
+  rappelTaskDiv.style.position = "absolute";
+  rappelTaskDiv.style.zIndex = 1000;
+  rappelTaskDiv.style.pointerEvents = "none";
+  document.body.appendChild(rappelTaskDiv);
 
-        rappelTaskDiv.style.position = "relative";
-        rappelTaskDiv.style.cursor = "grab";
+  function moveAt(pageX, pageY) {
+    rappelTaskDiv.style.left = pageX - offsetX + "px";
+    rappelTaskDiv.style.top = pageY - offsetY + "px";
+  }
 
-        rappelTaskDiv.addEventListener("mousedown", e => {
-          e.preventDefault();
-          draggedRappel = rappelTaskDiv;
-          const rect = rappelTaskDiv.getBoundingClientRect();
-          offsetX = e.clientX - rect.left;
-          offsetY = e.clientY - rect.top;
+  function onMove(event) {
+    if (event.type === "mousemove") moveAt(event.pageX, event.pageY);
+    else if (event.type === "touchmove") moveAt(event.touches[0].pageX, event.touches[0].pageY);
+  }
 
-          rappelTaskDiv.style.position = "absolute";
-          rappelTaskDiv.style.zIndex = 1000;
-          rappelTaskDiv.style.pointerEvents = "none";
-          document.body.appendChild(rappelTaskDiv);
-          moveAt(e.pageX, e.pageY);
+  function onEnd(event) {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onEnd);
+    document.removeEventListener("touchmove", onMove);
+    document.removeEventListener("touchend", onEnd);
+    stopDragRappel(event);
+  }
 
-          function moveAt(pageX, pageY) { rappelTaskDiv.style.left = pageX - offsetX + "px"; rappelTaskDiv.style.top = pageY - offsetY + "px"; }
-
-          function onMouseMove(event) { moveAt(event.pageX, event.pageY); }
-          document.addEventListener("mousemove", onMouseMove);
-
-          function onMouseUp(event) {
-            document.removeEventListener("mousemove", onMouseMove);
-            document.removeEventListener("mouseup", onMouseUp);
-            stopDragRappel(event);
-          }
-          document.addEventListener("mouseup", onMouseUp);
-        });
-
-        rappelDiv.querySelector(".tasks").appendChild(rappelTaskDiv);
-      }
-    }
-
-    const taskDateStr = formatDate(new Date(task.year, task.month, task.day));
-    const taskDayDiv = document.querySelector(`.date[data-date="${taskDateStr}"]`);
-    if (taskDayDiv) {
-      const taskDiv = document.createElement("div");
-      taskDiv.className = "task";
-      taskDiv.textContent = `${task.matiere} : ${task.titre}`;
-      taskDiv.title = "Clique pour modifier/supprimer";
-      taskDiv.dataset.id = docSnap.id;
-
-      taskDiv.addEventListener("click", e => {
-        e.stopPropagation();
-        openModal(taskDateStr, docSnap.id, task);
-      });
-
-      taskDayDiv.querySelector(".tasks").appendChild(taskDiv);
-    }
-  });
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onEnd);
+  document.addEventListener("touchmove", onMove);
+  document.addEventListener("touchend", onEnd);
 }
 
 /* ================== Drag stop (rappel) ================== */
@@ -509,7 +470,17 @@ async function stopDragRappel(e) {
   if (!draggedRappel) return;
 
   draggedRappel.style.display = "none";
-  const elem = document.elementFromPoint(e.clientX, e.clientY);
+
+  let clientX, clientY;
+  if (e.type.startsWith("touch")) {
+    clientX = e.changedTouches[0].clientX;
+    clientY = e.changedTouches[0].clientY;
+  } else {
+    clientX = e.clientX;
+    clientY = e.clientY;
+  }
+
+  const elem = document.elementFromPoint(clientX, clientY);
   draggedRappel.style.display = "";
 
   const newDateDiv = elem ? elem.closest(".date") : null;
@@ -557,6 +528,16 @@ async function stopDragRappel(e) {
 
 /* ================== Modal handlers (add/edit) ================== */
 function openModal(dateStr, taskId = null, taskData = null) {
+  const selectedDateObj = parseDate(dateStr);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Bloque ajout sur date passée
+  if (selectedDateObj < today && !taskId) {
+      alert("Tu peux pas ajouter un devoir sur une date passée !");
+      return;
+  }
+
   selectedDate = dateStr;
   editingTaskId = taskId;
   modalBg.style.display = "flex";
