@@ -1,3 +1,7 @@
+/* ============================================================
+   main.js - Calendrier Devoirs (version mise à jour : rappels séparés et draggables mobile/pc)
+   ============================================================ */
+
 /* ================== Firebase imports ================== */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import {
@@ -46,21 +50,13 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 /* ================== Crypto (AES helper) ================== */
-/**
- * IMPORTANT :
- * - Garde cette clé privée (ne la commit pas en public, mets le repo en privé).
- * - Le bot DOIT utiliser la même clé pour déchiffrer.
- */
 const SECRET_KEY = "3k8$Pq9!mZr2@xLw7#yT";
-
-// Vérification basique que CryptoJS est bien dispo
 function assertCryptoReady() {
   if (typeof CryptoJS === "undefined" || !CryptoJS.AES) {
-    console.error("❌ CryptoJS introuvable. Ajoute le script CDN avant ce fichier.");
+    console.error("❌ CryptoJS introuvable. Ajoute le script CDN avant main.js");
     throw new Error("CryptoJS non chargé");
   }
 }
-
 function encryptText(plain) {
   assertCryptoReady();
   if (typeof plain !== "string") plain = String(plain ?? "");
@@ -78,7 +74,7 @@ function decryptText(cipher) {
   }
 }
 
-/* ================== FCM setup (no duplicate imports) ================== */
+/* ================== FCM setup ================== */
 let messaging = null;
 let fcmSupported = false;
 let fcmInitialized = false;
@@ -87,7 +83,6 @@ let fcmInitialized = false;
   if (fcmSupported) messaging = getMessaging(app);
 })();
 
-/* ================== Service Worker helper ================== */
 async function ensureServiceWorkerRegistered() {
   if (!("serviceWorker" in navigator)) return null;
   try {
@@ -101,22 +96,7 @@ async function ensureServiceWorkerRegistered() {
   }
 }
 
-/* ================== Google Auth ================== */
-const googleProvider = new GoogleAuthProvider();
-
-async function loginWithGoogleUIFlow() {
-  try {
-    const result = await signInWithPopup(auth, googleProvider);
-    console.log("✅ Connecté avec Google:", result.user.displayName);
-    return result.user;
-  } catch (err) {
-    console.error("❌ Erreur login Google:", err);
-    throw err;
-  }
-}
-
-/* ================== Notifications (FCM) ================== */
-const VAPID_KEY = "BEk1IzaUQOXzKFu7RIkILgmWic1IgWfMdAECHofkTC5D5kmUY6tC0lWVIUtqCyHdrD96aiccAYW5A00PTQHYBZM"; // ta VAPID key
+const VAPID_KEY = "BEk1IzaUQOXzKFu7RIkILgmWic1IgWfMdAECHofkTC5D5kmUY6tC0lWVIUtqCyHdrD96aiccAYW5A00PTQHYBZM";
 
 async function enableNotificationsForCurrentUser() {
   if (!fcmSupported) {
@@ -129,26 +109,17 @@ async function enableNotificationsForCurrentUser() {
   }
   try {
     const swReg = await ensureServiceWorkerRegistered();
-
     const permission = await Notification.requestPermission();
     if (permission !== "granted") {
       console.warn("Permission notifications refusée");
       return null;
     }
-
-    const token = await getToken(messaging, {
-      vapidKey: VAPID_KEY,
-      serviceWorkerRegistration: swReg ?? undefined
-    });
-
+    const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg ?? undefined });
     if (!token) {
       console.warn("Aucun token FCM récupéré (contexte / permission).");
       return null;
     }
-
     console.log("🔑 FCM token:", token);
-
-    // stocke token dans Firestore users/{uid}.fcmTokens (array) pour gestion multi devices
     try {
       const uRef = doc(db, "users", auth.currentUser.uid);
       const userSnap = await getDoc(uRef);
@@ -158,7 +129,6 @@ async function enableNotificationsForCurrentUser() {
     } catch (e) {
       console.warn("Impossible d'enregistrer token FCM dans Firestore:", e);
     }
-
     fcmInitialized = true;
     return token;
   } catch (e) {
@@ -167,22 +137,18 @@ async function enableNotificationsForCurrentUser() {
   }
 }
 
-// foreground handler
 function listenForegroundNotifications() {
   if (!messaging) return;
   onMessage(messaging, (payload) => {
     console.log("📩 Notif foreground:", payload);
     const t = payload?.notification?.title || "Notification";
     const b = payload?.notification?.body || "";
-    try {
-      new Notification(t, { body: b, icon: payload?.notification?.icon });
-    } catch {
-      alert(`${t}\n${b}`);
-    }
+    try { new Notification(t, { body: b, icon: payload?.notification?.icon }); }
+    catch { alert(`${t}\n${b}`); }
   });
 }
 
-/* ================== DOM references (existing in your HTML) ================== */
+/* ================== DOM references ================== */
 const calendar = document.getElementById("calendar");
 const monthYear = document.getElementById("monthYear");
 const prevMonthBtn = document.getElementById("prev-month-btn");
@@ -232,7 +198,7 @@ let offsetY = 0;
 let currentUser = null;
 let currentUserDoc = null;
 
-/* ================== Helpers (format/parse) ================== */
+/* ================== Helpers ================== */
 function formatDate(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -249,54 +215,6 @@ function ensureAuthed() {
     throw new Error("User not authenticated");
   }
 }
-
-/* ================== AUTH FLOW (single import used) ================== */
-onAuthStateChanged(auth, async (user) => {
-  if (user) {
-    currentUser = user;
-    if (loginBg) loginBg.style.display = "none";
-
-    await loadUserSettingsOrAsk().catch(console.error);
-    const now = new Date();
-    currentYear = now.getFullYear();
-    currentMonth = now.getMonth();
-    await renderCalendar(currentYear, currentMonth).catch(console.error);
-
-    await ensureServiceWorkerRegistered();
-    listenForegroundNotifications();
-    if (!fcmInitialized) await enableNotificationsIfAuto();
-  } else {
-    currentUser = null;
-    if (loginBg) loginBg.style.display = "flex";
-  }
-});
-
-// helper: try enable notifications automatically if user doc requests it
-async function enableNotificationsIfAuto() {
-  try {
-    const uRef = doc(db, "users", auth.currentUser.uid);
-    const snap = await getDoc(uRef);
-    const auto = snap.exists() && snap.data().autoEnableNotifications;
-    if (auto) await enableNotificationsForCurrentUser();
-  } catch (e) {
-    console.warn("autoEnableNotifications check failed", e);
-  }
-}
-
-/* ================== LOGIN UI handlers ================== */
-loginSubmitBtn?.addEventListener("click", async () => {
-  const email = loginUserInput.value?.trim();
-  const pass = loginPassInput.value?.trim();
-  if (!email || !pass) { alert("Email / mot de passe requis."); return; }
-  try { await signInWithEmailAndPassword(auth, email, pass); }
-  catch (e) { await createUserWithEmailAndPassword(auth, email, pass); }
-});
-
-loginGoogleBtn?.addEventListener("click", async () => {
-  try {
-    await loginWithGoogleUIFlow();
-  } catch (e) { alert("Erreur login Google"); }
-});
 
 /* ================== User settings (params) ================== */
 async function loadUserSettingsOrAsk() {
@@ -315,53 +233,10 @@ async function loadUserSettingsOrAsk() {
   }
 }
 
-paramsForm?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  ensureAuthed();
-  const ecoleUser = userIdInput.value.trim();
-  const ecolePassPlain = userPassInput.value.trim();
-  const reminderVal = parseInt(defaultReminderInput.value, 10);
-  if (!ecoleUser || !ecolePassPlain || isNaN(reminderVal) || reminderVal < 0 || reminderVal > 7) {
-    alert("Remplis les paramètres correctement (0-7 jours).");
-    return;
-  }
-
-  // 🔒 Chiffrement du mot de passe avant Firestore
-  const ecolePass = encryptText(ecolePassPlain);
-
-  const userRef = doc(db, "users", currentUser.uid);
-  const data = { ecoleUser, ecolePass, defaultReminder: reminderVal };
-  try {
-    await setDoc(userRef, data, { merge: true });
-    currentUserDoc = { ...(currentUserDoc || {}), ...data };
-    defaultReminder = reminderVal;
-    paramsBg.style.display = "none";
-    await renderCalendar(currentYear, currentMonth);
-    console.log("✅ Identifiants école stockés (mdp chiffré).");
-  } catch (e) {
-    console.error("Erreur sauvegarde paramètres", e);
-    alert("Erreur: impossible d’enregistrer.");
-  }
-});
-
-paramsCancelBtn?.addEventListener("click", () => { paramsBg.style.display = "none"; });
-
-function openParams() {
-  ensureAuthed();
-  // Identifiant en clair
-  userIdInput.value = currentUserDoc?.ecoleUser || "";
-
-  // 🔓 Déchiffrer à l’affichage du modal (si présent)
-  const enc = currentUserDoc?.ecolePass;
-  userPassInput.value = enc ? decryptText(enc) : "";
-
-  defaultReminderInput.value = currentUserDoc?.defaultReminder ?? defaultReminder ?? 1;
-  paramsBg.style.display = "flex";
-}
-
-/* ================== Calendar render & tasks (kept your logic) ================== */
+/* ================== Calendar render & tasks ================== */
 async function renderCalendar(year, month) {
-  ensureAuthed();
+  try { ensureAuthed(); } catch (e) { calendar.innerHTML = "<div class='not-logged'>Connecte-toi pour voir le calendrier</div>"; if (monthYear) monthYear.textContent = ""; return; }
+
   calendar.innerHTML = "";
   currentYear = year;
   currentMonth = month;
@@ -420,10 +295,98 @@ async function renderCalendar(year, month) {
 }
 
 /* ================== Load tasks (Firestore) ================== */
-rappelTaskDiv.addEventListener("mousedown", startDrag);
-rappelTaskDiv.addEventListener("touchstart", startDrag);
+/**
+ * IMPORTANT:
+ * - crée 2 éléments par devoir :
+ *    - .task : affichage contrôle (non-draggable)
+ *    - .rappel : élément draggable (mobile + pc) qui représente le rappel (peut être sur autre date)
+ */
+async function loadTasks(year, month) {
+  ensureAuthed();
+  try {
+    const q = query(
+      collection(db, "devoirs"),
+      where("ownerUid", "==", currentUser.uid),
+      where("year", "==", year),
+      where("month", "==", month)
+    );
+    const snap = await getDocs(q);
 
-function startDrag(e) {
+    // Pour éviter doublons si loadTasks appelé plusieurs fois
+    // (on recrée le calendrier à chaque render donc containers vides)
+
+    snap.forEach(docSnap => {
+      const data = docSnap.data();
+      // 1) ajoute affichage du contrôle (dans la case de la date de contrôle)
+      const controlDateKey = formatDate(new Date(data.year, data.month, data.day));
+      const controlContainer = document.querySelector(`.date[data-date="${controlDateKey}"] .tasks`);
+      if (controlContainer) {
+        const taskDiv = document.createElement("div");
+        taskDiv.className = "task";
+        taskDiv.textContent = `${data.matiere} - ${data.titre}`;
+        taskDiv.dataset.id = docSnap.id;
+        // double-clic ouvre édition
+        taskDiv.addEventListener("dblclick", (e) => {
+          e.stopPropagation();
+          editingTaskId = docSnap.id;
+          modalTitle.textContent = "Modifier le devoir";
+          matiereInput.value = data.matiere || "";
+          titreInput.value = data.titre || "";
+          // dateInput is control date (not rappel)
+          dateInput.value = controlDateKey;
+          rappelCheckbox.checked = !!data.rappel;
+          deleteBtn.style.display = "inline-block";
+          modalBg.style.display = "flex";
+        });
+        controlContainer.appendChild(taskDiv);
+      }
+
+      // 2) ajoute l'élément rappel (draggable) dans la case correspondant à data.rappelDate
+      const rappelDateKey = data.rappelDate || controlDateKey;
+      const rappelContainer = document.querySelector(`.date[data-date="${rappelDateKey}"] .tasks`);
+      if (rappelContainer) {
+        const rappelDiv = document.createElement("div");
+        rappelDiv.className = "rappel";
+        // petit badge pour savoir que c'est un rappel
+        rappelDiv.style.backgroundColor = "#FF6E00"; // orange pour rappel
+        rappelDiv.style.color = "#fff";
+
+        // 🎨 Style du rappel : fond sombre + barre orange + texte orange
+        rappelDiv.style.backgroundColor = "#1E1E1E"; // fond sombre
+       rappelDiv.style.borderLeft = "5px solid #FF6E00"; // barre orange flashy
+       rappelDiv.style.color = "#FF6E00"; // texte même couleur que la barre
+
+        rappelDiv.textContent = `🔔 ${data.matiere} - ${data.titre}`;
+        rappelDiv.dataset.id = docSnap.id;
+        rappelDiv.dataset.controlDate = controlDateKey;
+        rappelDiv.dataset.rappelDate = rappelDateKey;
+        // draggable handlers (pc + mobile)
+        rappelDiv.addEventListener("mousedown", (e) => startDrag(e, rappelDiv));
+        rappelDiv.addEventListener("touchstart", (e) => startDrag(e, rappelDiv));
+        // click on rappel => open day tasks / or edit on dblclick
+        rappelDiv.addEventListener("dblclick", (e) => {
+          e.stopPropagation();
+          // open edit modal using control date and data
+          editingTaskId = docSnap.id;
+          modalTitle.textContent = "Modifier le devoir";
+          matiereInput.value = data.matiere || "";
+          titreInput.value = data.titre || "";
+          dateInput.value = data.rappelDate || controlDateKey; // show control date, but ok
+          rappelCheckbox.checked = !!data.rappel;
+          deleteBtn.style.display = "inline-block";
+          modalBg.style.display = "flex";
+        });
+
+        rappelContainer.appendChild(rappelDiv);
+      }
+    });
+  } catch (e) {
+    console.error("Erreur loadTasks:", e);
+  }
+}
+
+/* ================== Drag & Drop (rappels) ================== */
+function startDrag(e, rappelTaskDiv) {
   e.preventDefault();
   draggedRappel = rappelTaskDiv;
   const rect = rappelTaskDiv.getBoundingClientRect();
@@ -465,14 +428,14 @@ function startDrag(e) {
   document.addEventListener("touchend", onEnd);
 }
 
-/* ================== Drag stop (rappel) ================== */
 async function stopDragRappel(e) {
   if (!draggedRappel) return;
 
+  // hide temporarily so elementFromPoint is accurate
   draggedRappel.style.display = "none";
 
   let clientX, clientY;
-  if (e.type.startsWith("touch")) {
+  if (e.type && e.type.startsWith && e.type.startsWith("touch")) {
     clientX = e.changedTouches[0].clientX;
     clientY = e.changedTouches[0].clientY;
   } else {
@@ -481,63 +444,64 @@ async function stopDragRappel(e) {
   }
 
   const elem = document.elementFromPoint(clientX, clientY);
+  // restore display
   draggedRappel.style.display = "";
 
   const newDateDiv = elem ? elem.closest(".date") : null;
   const taskId = draggedRappel.dataset.id;
   const originalRappelDate = draggedRappel.dataset.rappelDate;
+  const controlDateKey = draggedRappel.dataset.controlDate;
 
   if (!taskId) {
     draggedRappel = null;
     return;
   }
 
-  const docRef = doc(db, "devoirs", taskId);
-  const taskDoc = await getDoc(docRef);
-  const taskData = taskDoc.exists() ? taskDoc.data() : null;
-  const controlDate = taskData ? new Date(taskData.year, taskData.month, taskData.day) : null;
+  try {
+    const docRef = doc(db, "devoirs", taskId);
+    const taskDoc = await getDoc(docRef);
+    const taskData = taskDoc.exists() ? taskDoc.data() : null;
+    const controlDate = taskData ? new Date(taskData.year, taskData.month, taskData.day) : null;
 
-  if (!newDateDiv) {
-    await deleteDoc(doc(db, "devoirs", taskId));
-    draggedRappel.remove();
-    await renderCalendar(currentYear, currentMonth);
-  } else {
-    let newDateStr = newDateDiv.dataset.date;
-    const today = new Date(); today.setHours(0,0,0,0);
-    const newDate = parseDate(newDateStr);
+    if (!newDateDiv) {
+      // déposé hors calendrier -> suppression totale du devoir
+      await deleteDoc(doc(db, "devoirs", taskId));
+      if (draggedRappel && draggedRappel.parentNode) draggedRappel.parentNode.removeChild(draggedRappel);
+      await renderCalendar(currentYear, currentMonth);
+    } else {
+      let newDateStr = newDateDiv.dataset.date;
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const newDate = parseDate(newDateStr);
 
-    if (newDate < today || (controlDate && newDate > controlDate)) {
-      alert("Tu peux pas mettre un rappel avant aujourd’hui ou après la date du contrôle, date remise à l'origine.");
-      newDateStr = originalRappelDate;
+      if (newDate < today || (controlDate && newDate > controlDate)) {
+        alert("Tu peux pas mettre un rappel avant aujourd’hui ou après la date du contrôle, date remise à l'origine.");
+        newDateStr = originalRappelDate;
+      }
+
+      if (originalRappelDate !== newDateStr) {
+        await updateDoc(docRef, { rappelDate: newDateStr });
+      }
+      await renderCalendar(currentYear, currentMonth);
     }
-
-    if (originalRappelDate !== newDateStr) {
-      await updateDoc(docRef, { rappelDate: newDateStr });
-    }
-    await renderCalendar(currentYear, currentMonth);
+  } catch (err) {
+    console.error("stopDragRappel erreur:", err);
+  } finally {
+    // reset style
+    try {
+      if (draggedRappel) {
+        draggedRappel.style.position = "relative";
+        draggedRappel.style.left = "";
+        draggedRappel.style.top = "";
+        draggedRappel.style.zIndex = "";
+        draggedRappel.style.pointerEvents = "";
+      }
+    } catch {}
+    draggedRappel = null;
   }
-
-  // reset style
-  draggedRappel.style.position = "relative";
-  draggedRappel.style.left = "";
-  draggedRappel.style.top = "";
-  draggedRappel.style.zIndex = "";
-  draggedRappel.style.pointerEvents = "";
-  draggedRappel = null;
 }
 
 /* ================== Modal handlers (add/edit) ================== */
 function openModal(dateStr, taskId = null, taskData = null) {
-  const selectedDateObj = parseDate(dateStr);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  // Bloque ajout sur date passée
-  if (selectedDateObj < today && !taskId) {
-      alert("Tu peux pas ajouter un devoir sur une date passée !");
-      return;
-  }
-
   selectedDate = dateStr;
   editingTaskId = taskId;
   modalBg.style.display = "flex";
@@ -551,53 +515,124 @@ function openModal(dateStr, taskId = null, taskData = null) {
   deleteBtn.style.display = taskId ? "inline-block" : "none";
 }
 
-cancelBtn.addEventListener("click", () => { modalBg.style.display = "none"; });
+function closeModal() {
+  modalBg.style.display = "none";
+  editingTaskId = null;
+  taskForm.reset();
+  deleteBtn.style.display = "none";
+}
+
+cancelBtn.addEventListener("click", () => { closeModal(); });
 
 deleteBtn.addEventListener("click", async () => {
   if (editingTaskId) {
-    await deleteDoc(doc(db, "devoirs", editingTaskId));
-    modalBg.style.display = "none";
-    await renderCalendar(currentYear, currentMonth);
+    try {
+      await deleteDoc(doc(db, "devoirs", editingTaskId));
+      closeModal();
+      await renderCalendar(currentYear, currentMonth);
+    } catch (e) {
+      console.error("Erreur suppression devoir:", e);
+    }
   }
 });
 
-taskForm.addEventListener("submit", async e => {
+/* ================== Task form submit ================== */
+/**
+ * Lors de la création/édition :
+ * - dateInput = date du contrôle (obligatoire)
+ * - rappelCheckbox = créer rappel oui/non
+ * - rappelDate sera calculée = controleDate - defaultReminder jours (min = today)
+ */
+taskForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  ensureAuthed();
+  try { ensureAuthed(); } catch { alert("Connecte-toi d'abord."); return; }
+
   const matiere = matiereInput.value.trim();
   const titre = titreInput.value.trim();
   const dateVal = dateInput.value;
-  const rappel = rappelCheckbox.checked;
+  const rappel = !!rappelCheckbox.checked;
 
   if (!matiere || !titre || !dateVal) { alert("Remplis tous les champs"); return; }
 
-  const d = parseDate(dateVal);
-  const data = { matiere, titre, rappel, year: d.getFullYear(), month: d.getMonth(), day: d.getDate(), ownerUid: currentUser.uid };
+  const controlDate = parseDate(dateVal);
+  const year = controlDate.getFullYear();
+  const month = controlDate.getMonth();
+  const day = controlDate.getDate();
 
-  if (editingTaskId) {
-    await updateDoc(doc(db, "devoirs", editingTaskId), data);
+  // calcul rappelDate par défaut : controlDate - defaultReminder (mais pas avant aujourd'hui)
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let rappelDateObj = new Date(controlDate);
+  if (rappel) {
+    rappelDateObj.setDate(rappelDateObj.getDate() - (Number(defaultReminder) || 0));
+    if (rappelDateObj < today) rappelDateObj = today;
   } else {
-    await addDoc(collection(db, "devoirs"), data);
+    // si pas de rappel on met rappelDate = controlDate (ou vide), mais pour logique on conserve controlDate
+    rappelDateObj = controlDate;
   }
-  modalBg.style.display = "none";
-  await renderCalendar(currentYear, currentMonth);
+  const rappelDateStr = formatDate(rappelDateObj);
+
+  const data = {
+    matiere,
+    titre,
+    rappel,
+    year,
+    month,
+    day,
+    ownerUid: currentUser.uid,
+    rappelDate: rappelDateStr
+  };
+
+  try {
+    if (editingTaskId) {
+      await updateDoc(doc(db, "devoirs", editingTaskId), data);
+    } else {
+      await addDoc(collection(db, "devoirs"), data);
+    }
+    closeModal();
+    await renderCalendar(currentYear, currentMonth);
+  } catch (e) {
+    console.error("Erreur save devoir:", e);
+    alert("Erreur en sauvegardant le devoir.");
+  }
 });
 
 /* ================== Day tasks modal ================== */
 function openDayTasksModal(dateStr) {
+  ensureAuthed();
   dayTasksBg.style.display = "flex";
   dayTasksTitle.textContent = `Devoirs du ${dateStr}`;
   dayTasksList.innerHTML = "";
   selectedDate = dateStr;
-
-  document.querySelectorAll(`.date[data-date="${dateStr}"] .task`).forEach(taskDiv => {
-    const div = document.createElement("div");
-    div.textContent = taskDiv.textContent;
-    dayTasksList.appendChild(div);
-  });
+  refreshDayTasksList(dateStr);
 }
 dayTasksCloseBtn.addEventListener("click", () => { dayTasksBg.style.display = "none"; });
-dayTasksAddBtn.addEventListener("click", () => { openModal(selectedDate); dayTasksBg.style.display = "none"; });
+
+dayTasksAddBtn.addEventListener("click", () => {
+  openModal(selectedDate);
+  dayTasksBg.style.display = "none";
+});
+
+async function refreshDayTasksList(dateStr) {
+  try {
+    const q = query(collection(db, "devoirs"), where("ownerUid", "==", currentUser.uid), where("rappelDate", "==", dateStr));
+    const snap = await getDocs(q);
+    dayTasksList.innerHTML = "";
+    snap.forEach(docSnap => {
+      const data = docSnap.data();
+      const div = document.createElement("div");
+      div.className = "day-task";
+      div.textContent = `${data.matiere} - ${data.titre}`;
+      div.dataset.id = docSnap.id;
+      div.addEventListener("dblclick", () => {
+        editingTaskId = docSnap.id;
+        openModal(dateStr, docSnap.id, data);
+      });
+      dayTasksList.appendChild(div);
+    });
+  } catch (e) {
+    console.error("refreshDayTasksList:", e);
+  }
+}
 
 /* ================== Navigation buttons ================== */
 prevMonthBtn.addEventListener("click", () => {
@@ -612,16 +647,109 @@ nextMonthBtn.addEventListener("click", () => {
   if (m > 11) { m = 0; y += 1; }
   renderCalendar(y, m);
 });
-
 settingsBtn.addEventListener("click", () => { openParams(); });
 
-/* ================== Bot: récupérer creds déchiffrés ================== */
-/**
- * À appeler côté app/bot quand tu dois te connecter à l'école.
- * Retourne { identifiant, motdepasse } en clair (en mémoire seulement).
- * Le stockage Firestore reste chiffré.
- */
-export async function getEcoleCredentials() { // export si tu importes ce module ailleurs
+/* ================== Params modal (settings) ================== */
+function openParams() {
+  ensureAuthed();
+  userIdInput.value = currentUserDoc?.ecoleUser || "";
+  const enc = currentUserDoc?.ecolePass;
+  userPassInput.value = enc ? decryptText(enc) : "";
+  defaultReminderInput.value = currentUserDoc?.defaultReminder ?? defaultReminder ?? 1;
+  paramsBg.style.display = "flex";
+}
+paramsCancelBtn.addEventListener("click", () => { paramsBg.style.display = "none"; });
+
+paramsForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try { ensureAuthed(); } catch { alert("Connecte-toi d'abord."); return; }
+
+  const ecoleUser = userIdInput.value.trim();
+  const ecolePassPlain = userPassInput.value.trim();
+  const reminderVal = parseInt(defaultReminderInput.value, 10);
+  if (!ecoleUser || !ecolePassPlain || isNaN(reminderVal) || reminderVal < 0 || reminderVal > 365) {
+    alert("Remplis les paramètres correctement (jours de rappel: 0-365).");
+    return;
+  }
+
+  const ecolePass = encryptText(ecolePassPlain);
+  const userRef = doc(db, "users", currentUser.uid);
+  const data = { ecoleUser, ecolePass, defaultReminder: reminderVal };
+  try {
+    await setDoc(userRef, data, { merge: true });
+    currentUserDoc = { ...(currentUserDoc || {}), ...data };
+    defaultReminder = reminderVal;
+    paramsBg.style.display = "none";
+    await renderCalendar(currentYear, currentMonth);
+    console.log("✅ Paramètres sauvegardés (mdp chiffré).");
+  } catch (e) {
+    console.error("Erreur sauvegarde paramètres", e);
+    alert("Erreur: impossible d’enregistrer.");
+  }
+});
+
+/* ================== Auth UI handlers ================== */
+loginSubmitBtn?.addEventListener("click", async () => {
+  const email = loginUserInput.value?.trim();
+  const pass = loginPassInput.value?.trim();
+  if (!email || !pass) { alert("Email / mot de passe requis."); return; }
+  try {
+    await signInWithEmailAndPassword(auth, email, pass);
+    loginBg.style.display = "none";
+  } catch (e) {
+    try {
+      await createUserWithEmailAndPassword(auth, email, pass);
+      loginBg.style.display = "none";
+    } catch (err) {
+      console.error("Auth error:", err);
+      alert("Erreur connexion/inscription : " + (err.message || err));
+    }
+  }
+});
+loginGoogleBtn?.addEventListener("click", async () => {
+  try { await loginWithGoogleUIFlow(); loginBg.style.display = "none"; } catch (e) { console.error("Google login error:", e); alert("Erreur login Google"); }
+});
+
+/* ================== onAuthStateChanged - main flow ================== */
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    currentUser = user;
+    if (loginBg) loginBg.style.display = "none";
+
+    try { await loadUserSettingsOrAsk(); } catch (e) { console.warn("loadUserSettingsOrAsk failed:", e); }
+
+    try {
+      const now = new Date();
+      currentYear = now.getFullYear();
+      currentMonth = now.getMonth();
+      await renderCalendar(currentYear, currentMonth);
+    } catch (e) { console.error("renderCalendar error:", e); }
+
+    await ensureServiceWorkerRegistered();
+    listenForegroundNotifications();
+    if (!fcmInitialized) await enableNotificationsIfAuto().catch(() => {});
+  } else {
+    currentUser = null;
+    if (loginBg) loginBg.style.display = "flex";
+    calendar.innerHTML = "<div class='not-logged'>Connecte-toi pour voir le calendrier</div>";
+    if (monthYear) monthYear.textContent = "";
+  }
+});
+
+async function enableNotificationsIfAuto() {
+  try {
+    if (!currentUser) return;
+    const uRef = doc(db, "users", currentUser.uid);
+    const snap = await getDoc(uRef);
+    const auto = snap.exists() && snap.data().autoEnableNotifications;
+    if (auto) await enableNotificationsForCurrentUser();
+  } catch (e) {
+    console.warn("autoEnableNotifications check failed", e);
+  }
+}
+
+/* ================== Export helper for bot/app usage ================== */
+export async function getEcoleCredentials() {
   ensureAuthed();
   const snap = await getDoc(doc(db, "users", currentUser.uid));
   if (!snap.exists()) return null;
@@ -631,21 +759,26 @@ export async function getEcoleCredentials() { // export si tu importes ce module
   return { identifiant, motdepasse };
 }
 
+/* ================== Trash interactions (drag hint) ================== */
+trashDiv?.addEventListener("mouseenter", () => { trashDiv.classList.add("over"); });
+trashDiv?.addEventListener("mouseleave", () => { trashDiv.classList.remove("over"); });
+
+/* ================== Debug helpers exposed globally ================== */
+window.__appDebug = { getEcoleCredentials, encryptText, decryptText, logout: () => signOut(auth) };
+
 /* ================== Init on load ================== */
 (async () => {
-  await ensureServiceWorkerRegistered();
-
-  const now = new Date();
-  if (currentYear === null) currentYear = now.getFullYear();
-  if (currentMonth === null) currentMonth = now.getMonth();
-
+  await ensureServiceWorkerRegistered().catch(() => {});
   try {
     if (auth.currentUser) {
       currentUser = auth.currentUser;
-      await loadUserSettingsOrAsk();
+      await loadUserSettingsOrAsk().catch(console.error);
+      const now = new Date();
+      currentYear = now.getFullYear();
+      currentMonth = now.getMonth();
       await renderCalendar(currentYear, currentMonth);
       listenForegroundNotifications();
-      if (!fcmInitialized) await enableNotificationsForCurrentUser();
+      if (!fcmInitialized) await enableNotificationsIfAuto();
     } else {
       if (loginBg) loginBg.style.display = "flex";
     }
@@ -654,10 +787,3 @@ export async function getEcoleCredentials() { // export si tu importes ce module
   }
 })();
 
-/* ================== (Optionnel) Expose quelques actions pour debug dans la console ================== */
-window.__appDebug = {
-  getEcoleCredentials,
-  encryptText,
-  decryptText,
-  logout: () => signOut(auth)
-};
