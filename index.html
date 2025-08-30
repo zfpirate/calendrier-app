@@ -28,6 +28,8 @@
         <input type="text" id="matiere" placeholder="Matière" required>
         <input type="text" id="titre" placeholder="Titre du devoir" required>
         <input type="date" id="date" required>
+        <input type="time" id="heure" value="18:00" required>
+
         <label><input type="checkbox" id="rappel" checked> Rappel</label>
         <div style="margin-top:10px; display:flex; justify-content:space-between;">
           <button type="submit">Enregistrer</button>
@@ -48,6 +50,9 @@
         <input type="password" id="userPass" name="userPass" placeholder="Ton mot de passe" required />
         <label for="defaultReminder">Jours avant rappel (0 = même jour)</label>
         <input type="number" id="defaultReminder" name="defaultReminder" min="0" max="7" required />
+        <label for="defaultHour">Heure par défaut du rappel</label>
+        <input type="time" id="defaultHour" name="defaultHour" value="18:00" required />
+
         <div class="modal-buttons">
           <button type="submit" class="save-btn">Sauvegarder</button>
           <button type="button" id="params-cancel-btn" class="cancel-btn">Annuler</button>

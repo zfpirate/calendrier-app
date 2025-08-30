@@ -1,6 +1,4 @@
-/* ============================================================
-   main.js - Calendrier Devoirs (version mise à jour : rappels séparés et draggables mobile/pc)
-   ============================================================ */
+/* ================== main.js - Calendrier Devoirs (corrigé) ================== */
 
 /* ================== Firebase imports ================== */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
@@ -49,7 +47,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-/* ================== Crypto (AES helper) ================== */
+/* ================== Crypto helper (CryptoJS must be in HTML) ================== */
 const SECRET_KEY = "3k8$Pq9!mZr2@xLw7#yT";
 function assertCryptoReady() {
   if (typeof CryptoJS === "undefined" || !CryptoJS.AES) {
@@ -59,22 +57,20 @@ function assertCryptoReady() {
 }
 function encryptText(plain) {
   assertCryptoReady();
-  if (typeof plain !== "string") plain = String(plain ?? "");
-  return CryptoJS.AES.encrypt(plain, SECRET_KEY).toString();
+  return CryptoJS.AES.encrypt(String(plain ?? ""), SECRET_KEY).toString();
 }
 function decryptText(cipher) {
   assertCryptoReady();
-  if (!cipher || typeof cipher !== "string") return "";
+  if (!cipher) return "";
   try {
-    const bytes = CryptoJS.AES.decrypt(cipher, SECRET_KEY);
-    return bytes.toString(CryptoJS.enc.Utf8) || "";
+    return CryptoJS.AES.decrypt(cipher, SECRET_KEY).toString(CryptoJS.enc.Utf8) || "";
   } catch (e) {
-    console.warn("⚠️ Échec déchiffrement (clé invalide / donnée corrompue)", e);
+    console.warn("⚠️ Échec déchiffrement", e);
     return "";
   }
 }
 
-/* ================== FCM setup ================== */
+/* ================== FCM setup (optional) ================== */
 let messaging = null;
 let fcmSupported = false;
 let fcmInitialized = false;
@@ -114,12 +110,14 @@ async function enableNotificationsForCurrentUser() {
       console.warn("Permission notifications refusée");
       return null;
     }
-    const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg ?? undefined });
+    const token = await getToken(messaging, {
+      vapidKey: VAPID_KEY,
+      serviceWorkerRegistration: swReg ?? undefined
+    });
     if (!token) {
       console.warn("Aucun token FCM récupéré (contexte / permission).");
       return null;
     }
-    console.log("🔑 FCM token:", token);
     try {
       const uRef = doc(db, "users", auth.currentUser.uid);
       const userSnap = await getDoc(uRef);
@@ -160,6 +158,7 @@ const modalTitle = document.getElementById("modal-title");
 const matiereInput = document.getElementById("matiere");
 const titreInput = document.getElementById("titre");
 const dateInput = document.getElementById("date");
+const heureInput = document.getElementById("heure"); // time input in task modal
 const rappelCheckbox = document.getElementById("rappel");
 const cancelBtn = document.getElementById("cancel-btn");
 const deleteBtn = document.getElementById("delete-btn");
@@ -170,6 +169,7 @@ const paramsForm = document.getElementById("paramsForm");
 const userIdInput = document.getElementById("userId");
 const userPassInput = document.getElementById("userPass");
 const defaultReminderInput = document.getElementById("defaultReminder");
+const defaultHourInput = document.getElementById("defaultHour");
 const paramsCancelBtn = document.getElementById("params-cancel-btn");
 
 const dayTasksBg = document.getElementById("dayTasks-bg");
@@ -192,13 +192,17 @@ let currentMonth = null;
 let selectedDate = null;
 let editingTaskId = null;
 let defaultReminder = 1;
+let defaultHour = "18:00";
 let draggedRappel = null;
 let offsetX = 0;
 let offsetY = 0;
 let currentUser = null;
 let currentUserDoc = null;
 
-/* ================== Helpers ================== */
+// preserve rappelDate when editing existing tasks (so drag-preserved date isn't overwritten)
+let preservedRappelDate = null;
+
+/* ================== Helpers (format/parse) ================== */
 function formatDate(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -206,7 +210,8 @@ function formatDate(date) {
   return `${y}-${m}-${d}`;
 }
 function parseDate(str) {
-  const [y, m, d] = str.split("-").map(Number);
+  if (!str) return new Date(NaN);
+  const [y, m, d] = (str || "").split("-").map(Number);
   return new Date(y, m - 1, d);
 }
 function ensureAuthed() {
@@ -216,15 +221,16 @@ function ensureAuthed() {
   }
 }
 
-/* ================== User settings (params) ================== */
+/* ================== Load user settings ================== */
 async function loadUserSettingsOrAsk() {
   ensureAuthed();
-  const userRef = doc(db, "users", currentUser.uid);
   try {
+    const userRef = doc(db, "users", currentUser.uid);
     const snap = await getDoc(userRef);
     if (snap.exists()) {
       currentUserDoc = snap.data();
       defaultReminder = Number(currentUserDoc.defaultReminder ?? 1) || 1;
+      defaultHour = currentUserDoc.defaultHour ?? defaultHour ?? "18:00";
     } else {
       openParams();
     }
@@ -233,9 +239,13 @@ async function loadUserSettingsOrAsk() {
   }
 }
 
-/* ================== Calendar render & tasks ================== */
+/* ================== Calendar render ================== */
 async function renderCalendar(year, month) {
-  try { ensureAuthed(); } catch (e) { calendar.innerHTML = "<div class='not-logged'>Connecte-toi pour voir le calendrier</div>"; if (monthYear) monthYear.textContent = ""; return; }
+  try { ensureAuthed(); } catch (e) {
+    calendar.innerHTML = "<div class='not-logged'>Connecte-toi pour voir le calendrier</div>";
+    if (monthYear) monthYear.textContent = "";
+    return;
+  }
 
   calendar.innerHTML = "";
   currentYear = year;
@@ -253,7 +263,7 @@ async function renderCalendar(year, month) {
   });
 
   const firstDayOfMonth = new Date(year, month, 1);
-  let startDay = (firstDayOfMonth.getDay() + 6) % 7;
+  let startDay = (firstDayOfMonth.getDay() + 6) % 7; // Monday-first
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   for (let i = 0; i < startDay; i++) {
@@ -286,7 +296,11 @@ async function renderCalendar(year, month) {
     tasksDiv.className = "tasks";
     dayDiv.appendChild(tasksDiv);
 
-    dayDiv.addEventListener("click", () => { openDayTasksModal(dateStr); });
+    dayDiv.addEventListener("click", (e) => {
+      // only if clicking the cell (not a child)
+      if (e.target !== dayDiv && !e.target.classList.contains('date')) return;
+      openDayTasksModal(dateStr);
+    });
 
     calendar.appendChild(dayDiv);
   }
@@ -296,85 +310,125 @@ async function renderCalendar(year, month) {
 
 /* ================== Load tasks (Firestore) ================== */
 /**
- * IMPORTANT:
- * - crée 2 éléments par devoir :
- *    - .task : affichage contrôle (non-draggable)
- *    - .rappel : élément draggable (mobile + pc) qui représente le rappel (peut être sur autre date)
+ * loadTasks : charge les devoirs pour ownerUid == currentUser.uid et
+ * place :
+ *  - une "task" (control) dans la case du devoir (date)
+ *  - un "rappel" draggble dans la case correspondant à rappelDate (peut être control date)
  */
 async function loadTasks(year, month) {
   ensureAuthed();
   try {
     const q = query(
       collection(db, "devoirs"),
-      where("ownerUid", "==", currentUser.uid),
-      where("year", "==", year),
-      where("month", "==", month)
+      where("ownerUid", "==", currentUser.uid)
     );
     const snap = await getDocs(q);
 
-    // Pour éviter doublons si loadTasks appelé plusieurs fois
-    // (on recrée le calendrier à chaque render donc containers vides)
+    // Clear all tasks containers
+    document.querySelectorAll(".date .tasks").forEach(t => t.innerHTML = "");
 
     snap.forEach(docSnap => {
       const data = docSnap.data();
-      // 1) ajoute affichage du contrôle (dans la case de la date de contrôle)
-      const controlDateKey = formatDate(new Date(data.year, data.month, data.day));
-      const controlContainer = document.querySelector(`.date[data-date="${controlDateKey}"] .tasks`);
+      // compute control date (some docs use date string, some use year/month/day)
+      let controlKey = data.date;
+      if (!controlKey && typeof data.year !== "undefined") {
+        controlKey = formatDate(new Date(data.year, data.month, data.day));
+      }
+
+      // ensure controlKey well-formed
+      if (!controlKey) return;
+
+      const controlContainer = document.querySelector(`.date[data-date="${controlKey}"] .tasks`);
       if (controlContainer) {
         const taskDiv = document.createElement("div");
         taskDiv.className = "task";
         taskDiv.textContent = `${data.matiere} - ${data.titre}`;
         taskDiv.dataset.id = docSnap.id;
-        // double-clic ouvre édition
+        // Prevent cell click from opening day modal
+        taskDiv.addEventListener("click", (e) => e.stopPropagation());
+        // Double-click edit
         taskDiv.addEventListener("dblclick", (e) => {
           e.stopPropagation();
           editingTaskId = docSnap.id;
-          modalTitle.textContent = "Modifier le devoir";
-          matiereInput.value = data.matiere || "";
-          titreInput.value = data.titre || "";
-          // dateInput is control date (not rappel)
-          dateInput.value = controlDateKey;
-          rappelCheckbox.checked = !!data.rappel;
-          deleteBtn.style.display = "inline-block";
-          modalBg.style.display = "flex";
+          // preserve stored rappelDate when editing so drag date won't be lost
+          preservedRappelDate = data.rappelDate || controlKey;
+          closePanelsAndOpenModal(controlKey, docSnap.id, data);
         });
         controlContainer.appendChild(taskDiv);
       }
 
-      // 2) ajoute l'élément rappel (draggable) dans la case correspondant à data.rappelDate
-      const rappelDateKey = data.rappelDate || controlDateKey;
-      const rappelContainer = document.querySelector(`.date[data-date="${rappelDateKey}"] .tasks`);
+      // Rappel element (draggable) placed on data.rappelDate or controlKey
+      const rappelKey = data.rappelDate || controlKey;
+      const rappelContainer = document.querySelector(`.date[data-date="${rappelKey}"] .tasks`);
       if (rappelContainer) {
         const rappelDiv = document.createElement("div");
         rappelDiv.className = "rappel";
-        // petit badge pour savoir que c'est un rappel
-        rappelDiv.style.backgroundColor = "#FF6E00"; // orange pour rappel
-        rappelDiv.style.color = "#fff";
+        // Theme: dark bg + left orange bar + orange text
+        rappelDiv.style.backgroundColor = "#1E1E1E";
+        rappelDiv.style.borderLeft = "5px solid #FF6E00";
+        rappelDiv.style.color = "#FF6E00";
+        rappelDiv.style.padding = "6px";
+        rappelDiv.style.margin = "4px 0";
+        rappelDiv.style.borderRadius = "4px";
+        rappelDiv.style.cursor = "grab";
 
-        // 🎨 Style du rappel : fond sombre + barre orange + texte orange
-        rappelDiv.style.backgroundColor = "#1E1E1E"; // fond sombre
-       rappelDiv.style.borderLeft = "5px solid #FF6E00"; // barre orange flashy
-       rappelDiv.style.color = "#FF6E00"; // texte même couleur que la barre
+        const heureLabel = data.heure ? ` (${data.heure})` : "";
+        rappelDiv.textContent = `🔔 ${data.matiere} - ${data.titre}${heureLabel}`;
 
-        rappelDiv.textContent = `🔔 ${data.matiere} - ${data.titre}`;
         rappelDiv.dataset.id = docSnap.id;
-        rappelDiv.dataset.controlDate = controlDateKey;
-        rappelDiv.dataset.rappelDate = rappelDateKey;
-        // draggable handlers (pc + mobile)
-        rappelDiv.addEventListener("mousedown", (e) => startDrag(e, rappelDiv));
-        rappelDiv.addEventListener("touchstart", (e) => startDrag(e, rappelDiv));
-        // click on rappel => open day tasks / or edit on dblclick
+        rappelDiv.dataset.controlDate = controlKey;
+        rappelDiv.dataset.rappelDate = rappelKey;
+
+        // prevent parent click
+        rappelDiv.addEventListener("click", (e) => e.stopPropagation());
+
+        // desktop drag API
+        rappelDiv.setAttribute("draggable", "true");
+        rappelDiv.addEventListener("dragstart", (ev) => {
+          draggedRappel = rappelDiv;
+          const rect = rappelDiv.getBoundingClientRect();
+          offsetX = ev.clientX - rect.left;
+          offsetY = ev.clientY - rect.top;
+          rappelDiv.classList.add("dragging");
+        });
+        rappelDiv.addEventListener("dragend", async (ev) => {
+          if (!draggedRappel) return;
+          const target = document.elementFromPoint(ev.clientX, ev.clientY);
+          await handleDropOnTarget(target, draggedRappel);
+          rappelDiv.classList.remove("dragging");
+          draggedRappel = null;
+        });
+
+        // touch drag (mobile)
+        rappelDiv.addEventListener("touchstart", (ev) => {
+          ev.preventDefault();
+          draggedRappel = rappelDiv;
+          const rect = rappelDiv.getBoundingClientRect();
+          offsetX = ev.touches[0].clientX - rect.left;
+          offsetY = ev.touches[0].clientY - rect.top;
+          rappelDiv.style.position = "absolute";
+          rappelDiv.style.zIndex = 2000;
+          document.body.appendChild(rappelDiv);
+          moveElementAt(rappelDiv, ev.touches[0].pageX, ev.touches[0].pageY, offsetX, offsetY);
+        });
+        rappelDiv.addEventListener("touchmove", (ev) => {
+          if (!draggedRappel) return;
+          moveElementAt(rappelDiv, ev.touches[0].pageX, ev.touches[0].pageY, offsetX, offsetY);
+        });
+        rappelDiv.addEventListener("touchend", async (ev) => {
+          if (!draggedRappel) return;
+          const t = ev.changedTouches[0];
+          const target = document.elementFromPoint(t.clientX, t.clientY);
+          await handleDropOnTarget(target, draggedRappel);
+          draggedRappel = null;
+        });
+
+        // dblclick to edit (preserve rappelDate)
         rappelDiv.addEventListener("dblclick", (e) => {
           e.stopPropagation();
-          // open edit modal using control date and data
           editingTaskId = docSnap.id;
-          modalTitle.textContent = "Modifier le devoir";
-          matiereInput.value = data.matiere || "";
-          titreInput.value = data.titre || "";
-          dateInput.value = data.rappelDate || controlDateKey; // show control date, but ok
-          rappelCheckbox.checked = !!data.rappel;
-          deleteBtn.style.display = "inline-block";
-          modalBg.style.display = "flex";
+          preservedRappelDate = data.rappelDate || rappelKey || controlKey;
+          closePanelsAndOpenModal(controlKey, docSnap.id, data);
         });
 
         rappelContainer.appendChild(rappelDiv);
@@ -385,220 +439,225 @@ async function loadTasks(year, month) {
   }
 }
 
-/* ================== Drag & Drop (rappels) ================== */
-function startDrag(e, rappelTaskDiv) {
-  e.preventDefault();
-  draggedRappel = rappelTaskDiv;
-  const rect = rappelTaskDiv.getBoundingClientRect();
-
-  if (e.type === "mousedown") {
-    offsetX = e.clientX - rect.left;
-    offsetY = e.clientY - rect.top;
-  } else if (e.type === "touchstart") {
-    offsetX = e.touches[0].clientX - rect.left;
-    offsetY = e.touches[0].clientY - rect.top;
-  }
-
-  rappelTaskDiv.style.position = "absolute";
-  rappelTaskDiv.style.zIndex = 1000;
-  rappelTaskDiv.style.pointerEvents = "none";
-  document.body.appendChild(rappelTaskDiv);
-
-  function moveAt(pageX, pageY) {
-    rappelTaskDiv.style.left = pageX - offsetX + "px";
-    rappelTaskDiv.style.top = pageY - offsetY + "px";
-  }
-
-  function onMove(event) {
-    if (event.type === "mousemove") moveAt(event.pageX, event.pageY);
-    else if (event.type === "touchmove") moveAt(event.touches[0].pageX, event.touches[0].pageY);
-  }
-
-  function onEnd(event) {
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onEnd);
-    document.removeEventListener("touchmove", onMove);
-    document.removeEventListener("touchend", onEnd);
-    stopDragRappel(event);
-  }
-
-  document.addEventListener("mousemove", onMove);
-  document.addEventListener("mouseup", onEnd);
-  document.addEventListener("touchmove", onMove);
-  document.addEventListener("touchend", onEnd);
+/* move element helper (touch) */
+function moveElementAt(elem, pageX, pageY, offX, offY) {
+  elem.style.left = (pageX - offX) + "px";
+  elem.style.top = (pageY - offY) + "px";
 }
 
-async function stopDragRappel(e) {
-  if (!draggedRappel) return;
+/* handle drop logic (desktop & mobile) */
+async function handleDropOnTarget(targetElem, draggedElem) {
+  try { draggedElem.style.display = ""; } catch {}
+  const taskId = draggedElem.dataset.id;
+  if (!taskId) return;
 
-  // hide temporarily so elementFromPoint is accurate
-  draggedRappel.style.display = "none";
+  const docRef = doc(db, "devoirs", taskId);
+  const today = new Date(); today.setHours(0,0,0,0);
 
-  let clientX, clientY;
-  if (e.type && e.type.startsWith && e.type.startsWith("touch")) {
-    clientX = e.changedTouches[0].clientX;
-    clientY = e.changedTouches[0].clientY;
-  } else {
-    clientX = e.clientX;
-    clientY = e.clientY;
-  }
-
-  const elem = document.elementFromPoint(clientX, clientY);
-  // restore display
-  draggedRappel.style.display = "";
-
-  const newDateDiv = elem ? elem.closest(".date") : null;
-  const taskId = draggedRappel.dataset.id;
-  const originalRappelDate = draggedRappel.dataset.rappelDate;
-  const controlDateKey = draggedRappel.dataset.controlDate;
-
-  if (!taskId) {
-    draggedRappel = null;
+  // dropped on trash -> delete
+  if (targetElem && (targetElem === trashDiv || (trashDiv && trashDiv.contains(targetElem)))) {
+    try {
+      await deleteDoc(docRef);
+    } catch (e) {
+      console.error("Erreur suppression lors du drop:", e);
+    }
+    await renderCalendar(currentYear, currentMonth);
     return;
   }
 
-  try {
-    const docRef = doc(db, "devoirs", taskId);
-    const taskDoc = await getDoc(docRef);
-    const taskData = taskDoc.exists() ? taskDoc.data() : null;
-    const controlDate = taskData ? new Date(taskData.year, taskData.month, taskData.day) : null;
-
-    if (!newDateDiv) {
-      // déposé hors calendrier -> suppression totale du devoir
-      await deleteDoc(doc(db, "devoirs", taskId));
-      if (draggedRappel && draggedRappel.parentNode) draggedRappel.parentNode.removeChild(draggedRappel);
-      await renderCalendar(currentYear, currentMonth);
-    } else {
-      let newDateStr = newDateDiv.dataset.date;
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const newDate = parseDate(newDateStr);
-
-      if (newDate < today || (controlDate && newDate > controlDate)) {
-        alert("Tu peux pas mettre un rappel avant aujourd’hui ou après la date du contrôle, date remise à l'origine.");
-        newDateStr = originalRappelDate;
-      }
-
-      if (originalRappelDate !== newDateStr) {
-        await updateDoc(docRef, { rappelDate: newDateStr });
-      }
-      await renderCalendar(currentYear, currentMonth);
-    }
-  } catch (err) {
-    console.error("stopDragRappel erreur:", err);
-  } finally {
-    // reset style
-    try {
-      if (draggedRappel) {
-        draggedRappel.style.position = "relative";
-        draggedRappel.style.left = "";
-        draggedRappel.style.top = "";
-        draggedRappel.style.zIndex = "";
-        draggedRappel.style.pointerEvents = "";
-      }
-    } catch {}
-    draggedRappel = null;
+  // find date cell
+  const dateCell = targetElem ? (targetElem.closest ? targetElem.closest(".date") : null) : null;
+  if (!dateCell) {
+    await renderCalendar(currentYear, currentMonth);
+    return;
   }
+
+  const newDateStr = dateCell.dataset.date;
+
+  try {
+    const taskSnap = await getDoc(docRef);
+    const taskData = taskSnap.exists() ? taskSnap.data() : null;
+    const controlDate = taskData ? new Date(taskData.year, taskData.month, taskData.day) : null;
+    const newDate = parseDate(newDateStr);
+
+    if (newDate < today || (controlDate && newDate > controlDate)) {
+      alert("Tu peux pas mettre un rappel avant aujourd’hui ou après la date du contrôle. Remise à l'origine.");
+      await renderCalendar(currentYear, currentMonth);
+      return;
+    }
+
+    if (taskData && taskData.rappelDate !== newDateStr) {
+      await updateDoc(docRef, { rappelDate: newDateStr });
+    }
+    await renderCalendar(currentYear, currentMonth);
+  } catch (err) {
+    console.error("stopDrag erreur:", err);
+  }
+}
+
+/* ================== Small helper: close other panels and open modal ================== */
+function closePanelsAndOpenModal(dateStr, taskId = null, taskData = null) {
+  // close panels to ensure modal is on top
+  try { dayTasksBg.style.display = "none"; } catch {}
+  try { paramsBg.style.display = "none"; } catch {}
+  try { closeModal(); } catch {}
+  // then open
+  openModal(dateStr, taskId, taskData);
 }
 
 /* ================== Modal handlers (add/edit) ================== */
 function openModal(dateStr, taskId = null, taskData = null) {
   selectedDate = dateStr;
   editingTaskId = taskId;
+
+  // ensure other panels closed
+  try { dayTasksBg.style.display = "none"; } catch {}
+  try { paramsBg.style.display = "none"; } catch {}
+
+  modalBg.style.zIndex = "9999";
   modalBg.style.display = "flex";
   modalTitle.textContent = taskId ? "Modifier le devoir" : "Ajouter un devoir";
 
   matiereInput.value = taskData?.matiere || "";
   titreInput.value = taskData?.titre || "";
-  dateInput.value = dateStr;
-  rappelCheckbox.checked = taskData?.rappel ?? true;
+
+  // DATE INPUT should show the control date (date of the devoir) NOT the rappel date
+  let controlDateValue = "";
+  if (taskData?.date) controlDateValue = taskData.date;
+  else if (typeof taskData?.year !== "undefined") controlDateValue = formatDate(new Date(taskData.year, taskData.month, taskData.day));
+  else controlDateValue = dateStr || "";
+
+  dateInput.value = controlDateValue;
+  rappelCheckbox.checked = typeof taskData?.rappel === "boolean" ? taskData.rappel : true;
+  heureInput.value = taskData?.heure || defaultHour;
+
+  // preservedRappelDate was set earlier when opening edit, otherwise compute a default
+  if (!preservedRappelDate) {
+    // compute fallback default from control date and defaultReminder
+    const cd = parseDate(controlDateValue);
+    const r = new Date(cd);
+    r.setDate(r.getDate() - (Number(defaultReminder) || 0));
+    const today = new Date(); today.setHours(0,0,0,0);
+    if (r < today) r.setTime(today.getTime());
+    preservedRappelDate = formatDate(r);
+  }
 
   deleteBtn.style.display = taskId ? "inline-block" : "none";
+
+  try { matiereInput.focus(); } catch {}
 }
 
 function closeModal() {
-  modalBg.style.display = "none";
+  try { modalBg.style.display = "none"; } catch {}
   editingTaskId = null;
-  taskForm.reset();
-  deleteBtn.style.display = "none";
+  try { taskForm.reset(); } catch {}
+  try { deleteBtn.style.display = "none"; } catch {}
+  preservedRappelDate = null;
 }
 
 cancelBtn.addEventListener("click", () => { closeModal(); });
 
 deleteBtn.addEventListener("click", async () => {
-  if (editingTaskId) {
-    try {
-      await deleteDoc(doc(db, "devoirs", editingTaskId));
-      closeModal();
-      await renderCalendar(currentYear, currentMonth);
-    } catch (e) {
-      console.error("Erreur suppression devoir:", e);
-    }
+  if (!editingTaskId) return;
+  try {
+    await deleteDoc(doc(db, "devoirs", editingTaskId));
+    closeModal();
+    await renderCalendar(currentYear, currentMonth);
+  } catch (e) {
+    console.error("Erreur suppression devoir:", e);
+    alert("Impossible de supprimer le devoir.");
   }
 });
 
-/* ================== Task form submit ================== */
-/**
- * Lors de la création/édition :
- * - dateInput = date du contrôle (obligatoire)
- * - rappelCheckbox = créer rappel oui/non
- * - rappelDate sera calculée = controleDate - defaultReminder jours (min = today)
- */
+/* ================== Single unified submit (create/edit) ================== */
+/* ================== Double-clic sur rappel / Modifier ================== */
+function openRappelForEdit(rappelId, dateRappel) {
+  ensureAuthed();
+  selectedDate = dateRappel; // garde la date du rappel sélectionnée
+
+  // récupère les données du doc
+  const docRef = doc(db, "devoirs", rappelId);
+  getDoc(docRef).then((snap) => {
+    if (!snap.exists()) return;
+    const data = snap.data();
+
+    editingTaskId = rappelId;
+    modalBg.style.display = "flex";
+    modalTitle.textContent = "Modifier le devoir";
+
+    matiereInput.value = data.matiere || "";
+    titreInput.value = data.titre || "";
+    dateInput.value = data.date || selectedDate; // la date originale du devoir
+    heureInput.value = data.heure || defaultHour;
+    rappelCheckbox.checked = !!data.rappel;
+
+    deleteBtn.style.display = "inline-block";
+  }).catch(err => console.error("Erreur récupération rappel:", err));
+}
+
+/* ================== Submit modal (create / edit) ================== */
 taskForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  try { ensureAuthed(); } catch { alert("Connecte-toi d'abord."); return; }
+  if (!currentUser) return alert("Connecte-toi avant !");
 
   const matiere = matiereInput.value.trim();
   const titre = titreInput.value.trim();
   const dateVal = dateInput.value;
   const rappel = !!rappelCheckbox.checked;
+  const heure = heureInput.value || defaultHour;
 
-  if (!matiere || !titre || !dateVal) { alert("Remplis tous les champs"); return; }
+  if (!matiere || !titre || !dateVal) return alert("Remplis tous les champs !");
 
   const controlDate = parseDate(dateVal);
-  const year = controlDate.getFullYear();
-  const month = controlDate.getMonth();
-  const day = controlDate.getDate();
+  const today = new Date(); today.setHours(0,0,0,0);
 
-  // calcul rappelDate par défaut : controlDate - defaultReminder (mais pas avant aujourd'hui)
-  const today = new Date(); today.setHours(0, 0, 0, 0);
   let rappelDateObj = new Date(controlDate);
   if (rappel) {
     rappelDateObj.setDate(rappelDateObj.getDate() - (Number(defaultReminder) || 0));
     if (rappelDateObj < today) rappelDateObj = today;
   } else {
-    // si pas de rappel on met rappelDate = controlDate (ou vide), mais pour logique on conserve controlDate
     rappelDateObj = controlDate;
   }
   const rappelDateStr = formatDate(rappelDateObj);
 
-  const data = {
+  const taskData = {
     matiere,
     titre,
+    date: dateVal,
+    heure,
     rappel,
-    year,
-    month,
-    day,
     ownerUid: currentUser.uid,
-    rappelDate: rappelDateStr
+    // NE PAS écraser rappelDate si c'est une édition
   };
 
   try {
     if (editingTaskId) {
-      await updateDoc(doc(db, "devoirs", editingTaskId), data);
+      // Récupère l'ancien rappelDate et merge
+      const docRef = doc(db, "devoirs", editingTaskId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const oldData = snap.data();
+        taskData.rappelDate = oldData.rappelDate || rappelDateStr; // garde la date du rappel existante
+      } else {
+        taskData.rappelDate = rappelDateStr;
+      }
+      await updateDoc(docRef, taskData);
     } else {
-      await addDoc(collection(db, "devoirs"), data);
+      taskData.rappelDate = rappelDateStr;
+      await addDoc(collection(db, "devoirs"), taskData);
     }
     closeModal();
     await renderCalendar(currentYear, currentMonth);
-  } catch (e) {
-    console.error("Erreur save devoir:", e);
-    alert("Erreur en sauvegardant le devoir.");
+  } catch (err) {
+    console.error("Erreur sauvegarde devoir:", err);
+    alert("Erreur en sauvegardant le devoir. Vérifie la console pour err.code / err.message.");
   }
 });
 
+
 /* ================== Day tasks modal ================== */
 function openDayTasksModal(dateStr) {
-  ensureAuthed();
+  try { modalBg.style.display = "none"; } catch {}
   dayTasksBg.style.display = "flex";
   dayTasksTitle.textContent = `Devoirs du ${dateStr}`;
   dayTasksList.innerHTML = "";
@@ -606,11 +665,7 @@ function openDayTasksModal(dateStr) {
   refreshDayTasksList(dateStr);
 }
 dayTasksCloseBtn.addEventListener("click", () => { dayTasksBg.style.display = "none"; });
-
-dayTasksAddBtn.addEventListener("click", () => {
-  openModal(selectedDate);
-  dayTasksBg.style.display = "none";
-});
+dayTasksAddBtn.addEventListener("click", () => { dayTasksBg.style.display = "none"; openModal(selectedDate); });
 
 async function refreshDayTasksList(dateStr) {
   try {
@@ -621,11 +676,13 @@ async function refreshDayTasksList(dateStr) {
       const data = docSnap.data();
       const div = document.createElement("div");
       div.className = "day-task";
-      div.textContent = `${data.matiere} - ${data.titre}`;
+      div.textContent = `${data.matiere} - ${data.titre}${data.heure ? " (" + data.heure + ")" : ""}`;
       div.dataset.id = docSnap.id;
       div.addEventListener("dblclick", () => {
         editingTaskId = docSnap.id;
-        openModal(dateStr, docSnap.id, data);
+        dayTasksBg.style.display = "none";
+        preservedRappelDate = data.rappelDate || dateStr;
+        openModal(formatDate(new Date(data.year, data.month, data.day)), docSnap.id, data);
       });
       dayTasksList.appendChild(div);
     });
@@ -635,13 +692,13 @@ async function refreshDayTasksList(dateStr) {
 }
 
 /* ================== Navigation buttons ================== */
-prevMonthBtn.addEventListener("click", () => {
+prevMonthBtn?.addEventListener("click", () => {
   let m = currentMonth - 1;
   let y = currentYear;
   if (m < 0) { m = 11; y -= 1; }
   renderCalendar(y, m);
 });
-nextMonthBtn.addEventListener("click", () => {
+nextMonthBtn?.addEventListener("click", () => {
   let m = currentMonth + 1;
   let y = currentYear;
   if (m > 11) { m = 0; y += 1; }
@@ -656,8 +713,10 @@ function openParams() {
   const enc = currentUserDoc?.ecolePass;
   userPassInput.value = enc ? decryptText(enc) : "";
   defaultReminderInput.value = currentUserDoc?.defaultReminder ?? defaultReminder ?? 1;
+  defaultHourInput.value = currentUserDoc?.defaultHour ?? defaultHour ?? "18:00";
   paramsBg.style.display = "flex";
 }
+
 paramsCancelBtn.addEventListener("click", () => { paramsBg.style.display = "none"; });
 
 paramsForm.addEventListener("submit", async (e) => {
@@ -667,6 +726,8 @@ paramsForm.addEventListener("submit", async (e) => {
   const ecoleUser = userIdInput.value.trim();
   const ecolePassPlain = userPassInput.value.trim();
   const reminderVal = parseInt(defaultReminderInput.value, 10);
+  const hourVal = defaultHourInput.value || "18:00";
+
   if (!ecoleUser || !ecolePassPlain || isNaN(reminderVal) || reminderVal < 0 || reminderVal > 365) {
     alert("Remplis les paramètres correctement (jours de rappel: 0-365).");
     return;
@@ -674,14 +735,21 @@ paramsForm.addEventListener("submit", async (e) => {
 
   const ecolePass = encryptText(ecolePassPlain);
   const userRef = doc(db, "users", currentUser.uid);
-  const data = { ecoleUser, ecolePass, defaultReminder: reminderVal };
+  const data = {
+    ecoleUser,
+    ecolePass,
+    defaultReminder: reminderVal,
+    defaultHour: hourVal
+  };
+
   try {
     await setDoc(userRef, data, { merge: true });
     currentUserDoc = { ...(currentUserDoc || {}), ...data };
     defaultReminder = reminderVal;
+    defaultHour = hourVal;
     paramsBg.style.display = "none";
     await renderCalendar(currentYear, currentMonth);
-    console.log("✅ Paramètres sauvegardés (mdp chiffré).");
+    console.log("✅ Paramètres sauvegardés (mdp chiffré + heure).");
   } catch (e) {
     console.error("Erreur sauvegarde paramètres", e);
     alert("Erreur: impossible d’enregistrer.");
@@ -707,7 +775,8 @@ loginSubmitBtn?.addEventListener("click", async () => {
   }
 });
 loginGoogleBtn?.addEventListener("click", async () => {
-  try { await loginWithGoogleUIFlow(); loginBg.style.display = "none"; } catch (e) { console.error("Google login error:", e); alert("Erreur login Google"); }
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); loginBg.style.display = "none"; }
+  catch (e) { console.error("Google login error:", e); alert("Erreur login Google"); }
 });
 
 /* ================== onAuthStateChanged - main flow ================== */
@@ -727,7 +796,7 @@ onAuthStateChanged(auth, async (user) => {
 
     await ensureServiceWorkerRegistered();
     listenForegroundNotifications();
-    if (!fcmInitialized) await enableNotificationsIfAuto().catch(() => {});
+    if (!fcmInitialized) await enableNotificationsForCurrentUser().catch(() => {});
   } else {
     currentUser = null;
     if (loginBg) loginBg.style.display = "flex";
@@ -748,6 +817,10 @@ async function enableNotificationsIfAuto() {
   }
 }
 
+/* ================== Trash hover UI ================== */
+trashDiv?.addEventListener("mouseenter", () => { trashDiv.classList.add("over"); });
+trashDiv?.addEventListener("mouseleave", () => { trashDiv.classList.remove("over"); });
+
 /* ================== Export helper for bot/app usage ================== */
 export async function getEcoleCredentials() {
   ensureAuthed();
@@ -759,12 +832,13 @@ export async function getEcoleCredentials() {
   return { identifiant, motdepasse };
 }
 
-/* ================== Trash interactions (drag hint) ================== */
-trashDiv?.addEventListener("mouseenter", () => { trashDiv.classList.add("over"); });
-trashDiv?.addEventListener("mouseleave", () => { trashDiv.classList.remove("over"); });
-
-/* ================== Debug helpers exposed globally ================== */
-window.__appDebug = { getEcoleCredentials, encryptText, decryptText, logout: () => signOut(auth) };
+/* ================== Debug helpers ================== */
+window.__appDebug = {
+  getEcoleCredentials,
+  encryptText,
+  decryptText,
+  logout: () => signOut(auth)
+};
 
 /* ================== Init on load ================== */
 (async () => {
@@ -778,7 +852,7 @@ window.__appDebug = { getEcoleCredentials, encryptText, decryptText, logout: () 
       currentMonth = now.getMonth();
       await renderCalendar(currentYear, currentMonth);
       listenForegroundNotifications();
-      if (!fcmInitialized) await enableNotificationsIfAuto();
+      if (!fcmInitialized) await enableNotificationsForCurrentUser();
     } else {
       if (loginBg) loginBg.style.display = "flex";
     }
@@ -786,4 +860,3 @@ window.__appDebug = { getEcoleCredentials, encryptText, decryptText, logout: () 
     console.error("Init error:", e);
   }
 })();
-
