@@ -312,3 +312,74 @@ button.delete-btn:hover{background:#ff6f61;}
   font-size: 1.1rem;
 }
 #loginGoogle:hover { background-color: #66a0ff; }z
+/* ====== INPUT HEURE (modal & params) ====== */
+input[type="time"],
+#defaultHour {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #2b2b2b;
+  background: #0f0f0f; /* fond sombre */
+  color: #FF6E00; /* texte orange (même que la barre) */
+  font-weight: 600;
+  font-size: 14px;
+  min-width: 110px;
+}
+
+/* ====== RAPPEL - style visuel (dark + barre orange + texte orange) ====== */
+.rappel,
+.task.rappel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+  background: #1b1b1b;         /* fond sombre */
+  border-left: 5px solid #FF6E00; /* barre orange */
+  color: #FF6E00;              /* texte orange */
+  padding: 6px;
+  margin: 6px 0;
+  border-radius: 6px;
+  cursor: grab;
+}
+
+/* texte tronqué dans le rappel */
+.rappel .rappel-text {
+  display: inline-block;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: inherit;
+}
+
+/* fleche / chevron pour ouvrir le texte */
+.rappel .rappel-arrow {
+  flex: 0 0 auto;
+  font-size: 14px;
+  color: #FF6E00;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 4px;
+  transition: transform .18s ease, opacity .18s ease;
+  opacity: 0.95;
+}
+
+/* état déployé (expanded) : texte multiline + rotation flèche */
+.rappel.expanded { align-items: flex-start; }
+.rappel.expanded .rappel-text { white-space: normal; }
+.rappel.expanded .rappel-arrow { transform: rotate(90deg); }
+
+/* si texte multiline doit défiler */
+.rappel .rappel-text.multi-line {
+  max-height: 8em;
+  overflow: auto;
+}
+
+/* petites interactions */
+.rappel:hover { box-shadow: 0 1px 8px rgba(0,0,0,0.45); }
+.rappel:active { opacity: 0.98; }
