@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Calendrier Devoirs</title>
   <link rel="stylesheet" href="style.css">
+  <!-- Favicon pour notifications SW -->
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
 </head>
 <body>
 
@@ -21,6 +23,7 @@
 
   <div id="calendar"></div>
 
+  <!-- Modals -->
   <div id="modal-bg">
     <div class="modal">
       <h2 id="modal-title">Ajouter un devoir</h2>
@@ -82,11 +85,10 @@
   <!-- Trash -->
   <div id="trash" title="Dépose ici pour supprimer">🗑️</div>
 
-  <!-- CryptoJS pour chiffrer/déchiffrer -->
+  <!-- CryptoJS -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 
-  <!-- Firebase Messaging / App -->
-  <!-- Le module ES pour main.js et client.js -->
+  <!-- Firebase modules -->
   <script type="module" src="main.js"></script>
   <script type="module" src="client.js"></script>
 

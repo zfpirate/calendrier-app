@@ -1,8 +1,7 @@
 // firebase-messaging-sw.js
-importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js");
-importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js");
+importScripts('https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js');
 
-// 🔥 Config Firebase
 firebase.initializeApp({
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
   authDomain: "app-calendrier-d1a1d.firebaseapp.com",
@@ -15,13 +14,12 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// Gestion des notifications en arrière-plan
+// Optionnel : gérer les notifications en background
 messaging.onBackgroundMessage((payload) => {
-  console.log("📩 Message reçu en background:", payload);
-  const { title, body, icon } = payload.notification;
-  self.registration.showNotification(title, {
-    body,
-    icon: icon || "/icon.png"
+  console.log('[firebase-messaging-sw.js] Message en background reçu ', payload);
+  self.registration.showNotification(payload.notification.title, {
+    body: payload.notification.body,
+    icon: '/favicon.ico' // Assure-toi d'avoir ton favicon à la racine
   });
 });
 
