@@ -1,8 +1,7 @@
 // client.js
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.31.0/firebase-app.js";
-import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.31.0/firebase-messaging.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging.js";
 
-// ----- CONFIG FIREBASE -----
 const firebaseConfig = {
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
   authDomain: "app-calendrier-d1a1d.firebaseapp.com",
@@ -13,51 +12,35 @@ const firebaseConfig = {
   measurementId: "G-VD7TTVLCY5"
 };
 
-// ----- INITIALISATION -----
 const app = initializeApp(firebaseConfig);
 const messaging = getMessaging(app);
 
-// ----- SERVICE WORKER -----
-async function registerServiceWorker() {
-  try {
-    console.log("🔄 Enregistrement du service worker...");
-    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
-    console.log("✅ Service Worker FCM enregistré:", registration);
-    return registration;
-  } catch (err) {
-    console.error("❌ Erreur SW:", err);
-  }
-}
-
-// ----- DEMANDER PERMISSION ET GET TOKEN -----
+// Demande la permission et récupère le token
 async function initFCM() {
   try {
-    const registration = await registerServiceWorker();
-    const permission = await Notification.requestPermission();
+    console.log("🔄 Enregistrement du service worker...");
+    const registration = await navigator.serviceWorker.register('firebase-messaging-sw.js');
+    console.log("✅ Service Worker FCM enregistré:", registration);
 
-    if (permission !== "granted") {
+    // Demande permission notifications
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
       console.warn("⚠️ Permission notifications refusée");
       return;
     }
 
-    const token = await getToken(messaging, { vapidKey: "BEk1IzaUQOXzKFu7RIkILgmWic1IgWfMdAECHofkTC5D5kmUY6tC0lWVIUtqCyHdrD96aiccAYW5A00PTQHYBZM", serviceWorkerRegistration: registration });
-    console.log("🔑 FCM token:", token);
-    // Ici tu peux l'envoyer dans Firestore pour ton utilisateur
-  } catch (err) {
-    console.error("Erreur FCM:", err);
+    const fcmToken = await getToken(messaging, { vapidKey: "BElk1IzaUQOXzKFu7RIkILgmWic1IgWfMdAECHofkTC5D5kmUY6tC0lWVIUtqCyHdrD96aiccAYW5A00PTQHYBZM", serviceWorkerRegistration: registration });
+    console.log("🔑 FCM token:", fcmToken);
+
+    // Ecoute les messages en foreground
+    onMessage(messaging, (payload) => {
+      console.log("[client.js] Message reçu au foreground:", payload);
+      alert(`Notification: ${payload.notification.title} - ${payload.notification.body}`);
+    });
+
+  } catch (error) {
+    console.error("Erreur FCM:", error);
   }
 }
 
-// ----- MESSAGE EN BACKGROUND / FRONT -----
-onMessage(messaging, (payload) => {
-  console.log("📩 Message reçu au premier plan:", payload);
-  if (Notification.permission === "granted") {
-    new Notification(payload.notification.title, {
-      body: payload.notification.body,
-      icon: "/favicon.ico"
-    });
-  }
-});
-
-// ----- INIT -----
 initFCM();
