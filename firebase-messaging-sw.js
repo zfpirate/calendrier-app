@@ -1,7 +1,10 @@
-// firebase-messaging-sw.js (à la racine)
+// firebase-messaging-sw.js
+
+// Importer les scripts Firebase v11 (compat) depuis le CDN
 importScripts('https://www.gstatic.com/firebasejs/11.31.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/11.31.0/firebase-messaging-compat.js');
 
+// Initialisation de Firebase dans le Service Worker
 firebase.initializeApp({
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
   authDomain: "app-calendrier-d1a1d.firebaseapp.com",
@@ -12,16 +15,18 @@ firebase.initializeApp({
   measurementId: "G-VD7TTVLCY5"
 });
 
+// Récupérer une instance de Messaging
 const messaging = firebase.messaging();
 
 // Optionnel : gérer les notifications en background
 messaging.onBackgroundMessage((payload) => {
-  console.log('[SW] Message reçu en arrière-plan ', payload);
-  const notificationTitle = payload.notification.title;
+  console.log('[firebase-messaging-sw.js] Received background message ', payload);
+
+  const notificationTitle = payload.notification?.title || 'Devoir';
   const notificationOptions = {
-    body: payload.notification.body,
-    icon: '/favicon.ico'
+    body: payload.notification?.body || 'Tu as un nouveau rappel !',
+    icon: '/favicon.ico' // mettre ton icône si tu veux
   };
+
   self.registration.showNotification(notificationTitle, notificationOptions);
 });
-
