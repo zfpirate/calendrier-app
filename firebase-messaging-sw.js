@@ -14,13 +14,12 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// Gestion des notifications push quand l'app est en background
 messaging.onBackgroundMessage(function(payload) {
-  console.log('[firebase-messaging-sw.js] Message reçu en arrière-plan', payload);
+  console.log('[SW] Message en arrière-plan:', payload);
   const notificationTitle = payload.notification.title;
   const notificationOptions = {
     body: payload.notification.body,
-    icon: '/icon.png' // si tu as un icône
+    icon: '/icon.png'
   };
   self.registration.showNotification(notificationTitle, notificationOptions);
 });
