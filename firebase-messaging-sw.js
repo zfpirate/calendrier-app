@@ -1,13 +1,9 @@
-// ------------------------------
-// firebase-messaging-sw.js - Service Worker FCM
-// ------------------------------
+// firebase-messaging-sw.js
+importScripts("https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js");
+importScripts("https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging.js");
 
-// ⚠️ On utilise Firebase v9-compat pour le service worker
-importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
-
-// 1️⃣ Config Firebase (même que client.js)
-firebase.initializeApp({
+// Même config que ton client.js
+const firebaseConfig = {
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
   authDomain: "app-calendrier-d1a1d.firebaseapp.com",
   projectId: "app-calendrier-d1a1d",
@@ -15,21 +11,23 @@ firebase.initializeApp({
   messagingSenderId: "797885447360",
   appId: "1:797885447360:web:ecceee1f6af18526978125",
   measurementId: "G-VD7TTVLCY5"
-});
+};
 
-// 2️⃣ Initialisation messaging
+// Init Firebase
+firebase.initializeApp(firebaseConfig);
+
+// Récupère FCM
 const messaging = firebase.messaging();
 
-// 3️⃣ Notifications en background
+// Gestion des notifs en arrière-plan
 messaging.onBackgroundMessage((payload) => {
-  console.log('[SW] Notification reçue en background:', payload);
+  console.log("📩 Message reçu en background:", payload);
 
-  const notificationTitle = payload.notification?.title || "Nouveau devoir";
+  const notificationTitle = payload.notification?.title || "Nouvelle notification";
   const notificationOptions = {
-    body: payload.notification?.body || "Tu as un nouveau rappel.",
-    icon: '/icon.png' // remplace par ton icône si tu veux
+    body: payload.notification?.body || "Tu as un nouveau message.",
+    icon: "/calendrier-app/icon.png" // Mets une icône de ton app si tu veux
   };
 
   self.registration.showNotification(notificationTitle, notificationOptions);
 });
-

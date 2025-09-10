@@ -1,8 +1,7 @@
 // client.js
-import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.6.0/firebase-app.js";
-import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.6.0/firebase-messaging.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging.js";
 
-// ⚡ Ton config Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
   authDomain: "app-calendrier-d1a1d.firebaseapp.com",
@@ -13,57 +12,44 @@ const firebaseConfig = {
   measurementId: "G-VD7TTVLCY5"
 };
 
-
-// ✅ Empêche d’initialiser deux fois
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+// Init Firebase
+const app = initializeApp(firebaseConfig);
 const messaging = getMessaging(app);
 
-// --- Enregistrement du Service Worker ---
-async function registerServiceWorker() {
+// Fonction d'init FCM
+export async function initFCM() {
   try {
-    // ⚠️ Ici on fixe bien le chemin
-    const registration = await navigator.serviceWorker.register("/calendrier-app/firebase-messaging-sw.js");
+    // Enregistre le service worker (⚠️ chemin relatif à ton repo GitHub Pages)
+    const registration = await navigator.serviceWorker.register(
+      "/calendrier-app/firebase-messaging-sw.js"
+    );
     console.log("✅ Service Worker FCM enregistré:", registration);
-    return registration;
-  } catch (error) {
-    console.error("❌ Erreur lors de l'enregistrement du SW:", error);
-  }
-}
 
-// --- Initialisation de FCM ---
-async function initFCM() {
-  try {
-    const registration = await registerServiceWorker();
-
-    if (Notification.permission === "default") {
-      await Notification.requestPermission();
+    // Demande permission
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      throw new Error("Notifications non autorisées");
     }
 
-    if (Notification.permission === "granted") {
-      const currentToken = await getToken(messaging, {
-        vapidKey: "TA_CLE_VAPID", // Mets ta clé publique VAPID Firebase
-        serviceWorkerRegistration: registration
-      });
+    // Récupère le token
+    const currentToken = await getToken(messaging, {
+      vapidKey: "BEk1IzaUQOXzKFu7RIkILgmWic1IgWfMdAECHofkTC5D5kmUY6tC0lWVIUtqCyHdrD96aiccAYW5A00PTQHYBZM", // Mets ta VAPID key Web Push
+      serviceWorkerRegistration: registration,
+    });
 
-      if (currentToken) {
-        console.log("🔑 FCM token:", currentToken);
-      } else {
-        console.log("⚠️ Aucun token récupéré, permission refusée ?");
-      }
+    if (currentToken) {
+      console.log("🔑 FCM token:", currentToken);
     } else {
-      console.log("❌ Permission notifications refusée");
+      console.warn("⚠️ Pas de token reçu.");
     }
 
-    // Réception de messages quand la page est ouverte
+    // Réception des messages
     onMessage(messaging, (payload) => {
       console.log("📩 Message reçu en foreground:", payload);
-      alert(`Notification: ${payload.notification.title}\n${payload.notification.body}`);
+      alert(`Notif: ${payload.notification.title}`);
     });
 
   } catch (err) {
-    console.error("Erreur FCM:", err);
+    console.error("❌ Erreur FCM:", err);
   }
 }
-
-// 🚀 Lancer l'init
-initFCM();
