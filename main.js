@@ -1,4 +1,4 @@
-/* ================== main.js (corrigé & complet) ================== */
+/* ================== main.js - Calendrier Devoirs (client) ================== */
 
 /* ================== Firebase imports ================== */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
@@ -70,7 +70,7 @@ function decryptText(cipher) {
   }
 }
 
-/* ================== FCM setup (optional) ================== */
+/* ================== FCM setup (client) ================== */
 let messaging = null;
 let fcmSupported = false;
 let fcmInitialized = false;
@@ -79,6 +79,12 @@ let fcmInitialized = false;
   if (fcmSupported) messaging = getMessaging(app);
 })();
 
+const VAPID_KEY = "BEk1IzaUQOXzKFu7RIkILgmWic1IgWfMdAECHofkTC5D5kmUY6tC0lWVIUtqCyHdrD96aiccAYW5A00PTQHYBZM";
+
+/**
+ * Enregistre SW & récupère un token FCM puis l'enregistre dans Firestore sous users/{uid}.fcmTokens
+ * Appelle ensureServiceWorkerRegistered() avant d'appeler getToken
+ */
 async function ensureServiceWorkerRegistered() {
   if (!("serviceWorker" in navigator)) return null;
   try {
@@ -92,8 +98,6 @@ async function ensureServiceWorkerRegistered() {
   }
 }
 
-const VAPID_KEY = "BEk1IzaUQOXzKFu7RIkILgmWic1IgWfMdAECHofkTC5D5kmUY6tC0lWVIUtqCyHdrD96aiccAYW5A00PTQHYBZM";
-
 async function enableNotificationsForCurrentUser() {
   if (!fcmSupported) {
     console.warn("FCM non supporté par ce navigateur.");
@@ -103,6 +107,7 @@ async function enableNotificationsForCurrentUser() {
     console.warn("User non connecté — notifications pas activées.");
     return null;
   }
+
   try {
     const swReg = await ensureServiceWorkerRegistered();
     const permission = await Notification.requestPermission();
@@ -110,15 +115,15 @@ async function enableNotificationsForCurrentUser() {
       console.warn("Permission notifications refusée");
       return null;
     }
-    const token = await getToken(messaging, {
-      vapidKey: VAPID_KEY,
-      serviceWorkerRegistration: swReg ?? undefined
-    });
+
+    const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg ?? undefined });
     if (!token) {
-      console.warn("Aucun token FCM récupéré (contexte / permission).");
+      console.warn("Aucun token FCM récupéré.");
       return null;
     }
     console.log("🔑 FCM token:", token);
+
+    // save token into users/{uid}.fcmTokens (array)
     try {
       const uRef = doc(db, "users", auth.currentUser.uid);
       const userSnap = await getDoc(uRef);
@@ -128,6 +133,7 @@ async function enableNotificationsForCurrentUser() {
     } catch (e) {
       console.warn("Impossible d'enregistrer token FCM dans Firestore:", e);
     }
+
     fcmInitialized = true;
     return token;
   } catch (e) {
@@ -142,12 +148,74 @@ function listenForegroundNotifications() {
     console.log("📩 Notif foreground:", payload);
     const t = payload?.notification?.title || "Notification";
     const b = payload?.notification?.body || "";
-    try {
-      new Notification(t, { body: b, icon: payload?.notification?.icon });
-    } catch {
-      alert(`${t}\n${b}`);
-    }
+    try { new Notification(t, { body: b, icon: payload?.notification?.icon }); }
+    catch { alert(`${t}\n${b}`); }
   });
+}
+
+/* ================== Notifications locales (app ouverte) ================== */
+// évite spam, garde en mémoire les doc ids notifiés pendant la session
+const notifiedThisSession = new Set();
+let notifIntervalId = null;
+const NOTIF_CHECK_INTERVAL_MS = 30 * 1000; // 30s
+
+function ensureNotificationPermission() {
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "default") {
+    Notification.requestPermission().then(p => console.log("Permission notifications :", p));
+  }
+}
+
+function showNotification(title, body) {
+  if (!("Notification" in window)) { console.log("Notif:", title, body); return; }
+  if (Notification.permission === "granted") {
+    try { new Notification(title, { body, icon: undefined }); }
+    catch (e) { console.log("Notification API failed, fallback:", title, body, e); alert(`${title}\n\n${body}`); }
+  } else {
+    console.log("Notification non autorisée :", title, body);
+  }
+}
+
+async function checkNotifications() {
+  if (!currentUser) return;
+  try {
+    const now = new Date();
+    const nowDateStr = formatDate(now);
+    const nowHour = now.getHours();
+    const nowMinute = now.getMinutes();
+
+    const q = query(collection(db, "devoirs"), where("ownerUid", "==", currentUser.uid), where("rappelDate", "==", nowDateStr));
+    const snap = await getDocs(q);
+    snap.forEach(async (docSnap) => {
+      const data = docSnap.data();
+      const id = docSnap.id;
+      const heureStr = data.heure || data.hour || "";
+      if (!heureStr) return;
+      const parts = heureStr.split(":").map(n => parseInt(n, 10));
+      if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return;
+      const [taskH, taskM] = parts;
+      if (taskH === nowHour && taskM === nowMinute) {
+        if (notifiedThisSession.has(id)) return;
+        showNotification("Rappel 📌", `${data.matiere} — ${data.titre} (${heureStr})`);
+        notifiedThisSession.add(id);
+        // Option : marquer lastNotifiedAt en base (décommenter si souhaité et si règles Firestore autorisent)
+        // await updateDoc(doc(db, "devoirs", id), { lastNotifiedAt: new Date().toISOString() });
+      }
+    });
+  } catch (e) {
+    console.error("checkNotifications error:", e);
+  }
+}
+
+function startNotificationChecks() {
+  ensureNotificationPermission();
+  if (notifIntervalId) clearInterval(notifIntervalId);
+  checkNotifications().catch(console.error);
+  notifIntervalId = setInterval(() => checkNotifications().catch(console.error), NOTIF_CHECK_INTERVAL_MS);
+}
+function stopNotificationChecks() {
+  if (notifIntervalId) { clearInterval(notifIntervalId); notifIntervalId = null; }
+  notifiedThisSession.clear();
 }
 
 /* ================== DOM references ================== */
@@ -162,7 +230,7 @@ const modalTitle = document.getElementById("modal-title");
 const matiereInput = document.getElementById("matiere");
 const titreInput = document.getElementById("titre");
 const dateInput = document.getElementById("date");
-const heureInput = document.getElementById("heure"); // input in task modal
+const heureInput = document.getElementById("heure"); // task modal time input
 const rappelCheckbox = document.getElementById("rappel");
 const cancelBtn = document.getElementById("cancel-btn");
 const deleteBtn = document.getElementById("delete-btn");
@@ -202,7 +270,7 @@ let offsetX = 0;
 let offsetY = 0;
 let currentUser = null;
 let currentUserDoc = null;
-let preservedRappelDate = null; // utilisé pour préserver rappelDate pendant édition
+let preservedRappelDate = null;
 
 /* ================== Helpers ================== */
 function formatDate(date) {
@@ -297,7 +365,7 @@ async function renderCalendar(year, month) {
     tasksDiv.className = "tasks";
     dayDiv.appendChild(tasksDiv);
 
-    // openDayTasksModal when clicking on the cell itself (not on a child)
+    // openDayTasksModal when clicking the cell itself (not on a child)
     dayDiv.addEventListener("click", (e) => {
       if (e.target === dayDiv || e.target.classList.contains("num") || e.target.classList.contains("day-name")) {
         openDayTasksModal(dateStr);
@@ -310,56 +378,51 @@ async function renderCalendar(year, month) {
   await loadTasks(year, month);
 }
 
-/* ================== Load tasks (Firestore) with drag & mobile longpress ================== */
+/* ================== Load tasks + draggable reminders (supports mobile long-press) ================== */
 async function loadTasks(year, month) {
   try {
     ensureAuthed();
     const q = query(collection(db, "devoirs"), where("ownerUid", "==", currentUser.uid));
     const snap = await getDocs(q);
 
-    // Clear current tasks display
+    // Clear display
     document.querySelectorAll(".date .tasks").forEach(t => t.innerHTML = "");
 
     snap.forEach(docSnap => {
       const data = docSnap.data();
 
-      // compute controlKey (supports both old style year/month/day and date string)
+      // determine control date (support both date string or year/month/day)
       let controlKey = data.date;
       if (!controlKey && typeof data.year !== "undefined") {
         controlKey = formatDate(new Date(data.year, data.month, data.day));
       }
       if (!controlKey) return;
 
-      // create control display
+      // --- task (control) ----------
       const controlContainer = document.querySelector(`.date[data-date="${controlKey}"] .tasks`);
       if (controlContainer) {
         const taskDiv = document.createElement("div");
         taskDiv.className = "task";
         taskDiv.textContent = `${data.matiere} - ${data.titre}`;
         taskDiv.dataset.id = docSnap.id;
-
-        // prevent parent click
         taskDiv.addEventListener("click", (e) => e.stopPropagation());
-
-        // dblclick -> edit (open modal with control date)
         taskDiv.addEventListener("dblclick", (e) => {
           e.stopPropagation();
           editingTaskId = docSnap.id;
           preservedRappelDate = data.rappelDate || controlKey;
-          closePanelsAndOpenModal(controlKey, docSnap.id, data);
+          closeAllPanels();
+          openModal(controlKey, docSnap.id, data);
         });
-
         controlContainer.appendChild(taskDiv);
       }
 
-      // create rappel element placed on rappelDate or fallback to controlKey
+      // --- rappel shown at rappelDate (or controlKey) ---
       const rappelKey = data.rappelDate || controlKey;
       const rappelContainer = document.querySelector(`.date[data-date="${rappelKey}"] .tasks`);
       if (!rappelContainer) return;
 
       const rappelDiv = document.createElement("div");
       rappelDiv.className = "rappel";
-      // theme styling
       rappelDiv.style.backgroundColor = "#1E1E1E";
       rappelDiv.style.borderLeft = "5px solid #FF6E00";
       rappelDiv.style.color = "#FF6E00";
@@ -375,18 +438,16 @@ async function loadTasks(year, month) {
       rappelDiv.dataset.controlDate = controlKey;
       rappelDiv.dataset.rappelDate = rappelKey;
 
-      // prevent parent click
       rappelDiv.addEventListener("click", (e) => e.stopPropagation());
-
-      // dblclick -> edit but preserve the rappel date (we don't want to overwrite it)
       rappelDiv.addEventListener("dblclick", (e) => {
         e.stopPropagation();
         editingTaskId = docSnap.id;
         preservedRappelDate = data.rappelDate || rappelKey || controlKey;
-        closePanelsAndOpenModal(controlKey, docSnap.id, data);
+        closeAllPanels();
+        openModal(controlKey, docSnap.id, data);
       });
 
-      // ---------- Desktop drag (mouse) ----------
+      // Desktop drag
       if (!("ontouchstart" in window)) {
         rappelDiv.setAttribute("draggable", "true");
         rappelDiv.addEventListener("dragstart", (ev) => {
@@ -402,7 +463,7 @@ async function loadTasks(year, month) {
         });
       }
 
-      // ---------- Mobile drag (long-press + clone) ----------
+      // Mobile: long-press to drag (clone)
       if ("ontouchstart" in window) {
         let longPressTimer = null;
         let dragClone = null;
@@ -413,14 +474,12 @@ async function loadTasks(year, month) {
         }
 
         rappelDiv.addEventListener("touchstart", (ev) => {
-          // start long press timer
           cancelLongPress();
           startedDrag = false;
           longPressTimer = setTimeout(() => {
             startedDrag = true;
             draggedRappel = rappelDiv;
-
-            // create a visual clone to move (so we don't detach the original)
+            // create clone
             dragClone = rappelDiv.cloneNode(true);
             dragClone.style.position = "absolute";
             dragClone.style.zIndex = 2000;
@@ -428,19 +487,17 @@ async function loadTasks(year, month) {
             dragClone.style.pointerEvents = "none";
             dragClone.style.width = `${rappelDiv.offsetWidth}px`;
             document.body.appendChild(dragClone);
-
             const rect = rappelDiv.getBoundingClientRect();
             offsetX = ev.touches[0].clientX - rect.left;
             offsetY = ev.touches[0].clientY - rect.top;
             moveElementAt(dragClone, ev.touches[0].pageX, ev.touches[0].pageY, offsetX, offsetY);
-          }, 350); // threshold long press
+          }, 350);
         });
 
         rappelDiv.addEventListener("touchmove", (ev) => {
           if (dragClone) {
             moveElementAt(dragClone, ev.touches[0].pageX, ev.touches[0].pageY, offsetX, offsetY);
           } else {
-            // If finger moves before long-press threshold, cancel (prevents accidental)
             cancelLongPress();
           }
         });
@@ -457,7 +514,6 @@ async function loadTasks(year, month) {
           }
         });
 
-        // touchcancel
         rappelDiv.addEventListener("touchcancel", () => {
           cancelLongPress();
           if (dragClone) try { dragClone.remove(); } catch {}
@@ -473,7 +529,7 @@ async function loadTasks(year, month) {
   }
 }
 
-/* helper to move element for mobile clone */
+/* helper to move element clone on mobile */
 function moveElementAt(elem, pageX, pageY, offX, offY) {
   elem.style.left = (pageX - offX) + "px";
   elem.style.top = (pageY - offY) + "px";
@@ -488,23 +544,16 @@ async function handleDropOnTarget(targetElem, draggedElem) {
   const docRef = doc(db, "devoirs", taskId);
   const today = new Date(); today.setHours(0,0,0,0);
 
-  // delete if dropped on trash
+  // dropped on trash -> delete
   if (targetElem && (targetElem === trashDiv || (trashDiv && trashDiv.contains(targetElem)))) {
-    try {
-      await deleteDoc(docRef);
-    } catch (e) {
-      console.error("Erreur suppression lors du drop:", e);
-    }
+    try { await deleteDoc(docRef); } catch (e) { console.error("Erreur suppression lors du drop:", e); }
     await renderCalendar(currentYear, currentMonth);
     return;
   }
 
   // find date cell
   const dateCell = targetElem ? (targetElem.closest ? targetElem.closest(".date") : null) : null;
-  if (!dateCell) {
-    await renderCalendar(currentYear, currentMonth);
-    return;
-  }
+  if (!dateCell) { await renderCalendar(currentYear, currentMonth); return; }
 
   const newDateStr = dateCell.dataset.date;
   try {
@@ -528,22 +577,15 @@ async function handleDropOnTarget(targetElem, draggedElem) {
   }
 }
 
-/* ================== Panels helpers (close others) ================== */
+/* ================== Panels helpers ================== */
 function closeAllPanels() {
   try { modalBg.style.display = "none"; } catch {}
   try { dayTasksBg.style.display = "none"; } catch {}
   try { paramsBg.style.display = "none"; } catch {}
 }
-
-/* helper used earlier multiple times */
 function closePanelsAndOpenModal(dateStr, taskId = null, taskData = null) {
-  // close other panels so modal is on top
   closeAllPanels();
-
-  // ensure clean modal state
   try { closeModal(); } catch {}
-
-  // now open
   openModal(dateStr, taskId, taskData);
 }
 
@@ -552,7 +594,7 @@ function openModal(dateStr, taskId = null, taskData = null) {
   selectedDate = dateStr;
   editingTaskId = taskId;
 
-  // ensure other panels hidden so modal is visible
+  // ensure other panels hidden
   try { dayTasksBg.style.display = "none"; } catch {}
   try { paramsBg.style.display = "none"; } catch {}
 
@@ -563,17 +605,12 @@ function openModal(dateStr, taskId = null, taskData = null) {
   // prefill fields
   matiereInput.value = taskData?.matiere || "";
   titreInput.value = taskData?.titre || "";
-  // dateInput shows the CONTROL date (not the rappelDate) — editing the control date is allowed
   dateInput.value = taskData?.date || dateStr || "";
   rappelCheckbox.checked = typeof taskData?.rappel === "undefined" ? true : !!taskData.rappel;
   heureInput.value = taskData?.heure || defaultHour;
 
-  // when editing a rappel we preserved the rappelDate separately so we don't lose it
-  // preservedRappelDate is used on submit to avoid overwriting rappelDate if user didn't change it.
-
   deleteBtn.style.display = taskId ? "inline-block" : "none";
 
-  // focus UX
   try { matiereInput.focus(); } catch {}
 }
 
@@ -585,7 +622,6 @@ function closeModal() {
   try { deleteBtn.style.display = "none"; } catch {}
 }
 
-/* cancel & delete */
 cancelBtn.addEventListener("click", () => { closeModal(); });
 
 deleteBtn.addEventListener("click", async () => {
@@ -639,12 +675,10 @@ taskForm.addEventListener("submit", async (e) => {
 
   try {
     if (editingTaskId) {
-      // If editing, we want to preserve existing rappelDate unless the user changed control date/rappel logic intentionally.
       const docRef = doc(db, "devoirs", editingTaskId);
       const snap = await getDoc(docRef);
       if (snap.exists()) {
         const old = snap.data();
-        // If preservedRappelDate set (we came from double-click on the rappel), keep it.
         const keepRappelDate = preservedRappelDate ?? old.rappelDate ?? rappelDateStr;
         payload.rappelDate = keepRappelDate;
       } else {
@@ -666,7 +700,6 @@ taskForm.addEventListener("submit", async (e) => {
 /* ================== Day tasks modal ================== */
 function openDayTasksModal(dateStr) {
   try { ensureAuthed(); } catch { calendar.innerHTML = "<div class='not-logged'>Connecte-toi</div>"; return; }
-  // close main modal so day list is visible
   try { modalBg.style.display = "none"; } catch {}
   dayTasksBg.style.display = "flex";
   dayTasksTitle.textContent = `Devoirs du ${dateStr}`;
@@ -703,14 +736,12 @@ async function refreshDayTasksList(dateStr) {
 
 /* ================== Navigation & settings ================== */
 prevMonthBtn?.addEventListener("click", () => {
-  let m = currentMonth - 1;
-  let y = currentYear;
+  let m = currentMonth - 1; let y = currentYear;
   if (m < 0) { m = 11; y -= 1; }
   renderCalendar(y, m);
 });
 nextMonthBtn?.addEventListener("click", () => {
-  let m = currentMonth + 1;
-  let y = currentYear;
+  let m = currentMonth + 1; let y = currentYear;
   if (m > 11) { m = 0; y += 1; }
   renderCalendar(y, m);
 });
@@ -765,27 +796,15 @@ loginSubmitBtn?.addEventListener("click", async () => {
   const email = loginUserInput.value?.trim();
   const pass = loginPassInput.value?.trim();
   if (!email || !pass) { alert("Email / mot de passe requis."); return; }
-  try {
-    await signInWithEmailAndPassword(auth, email, pass);
-    loginBg.style.display = "none";
-  } catch (e) {
-    try {
-      await createUserWithEmailAndPassword(auth, email, pass);
-      loginBg.style.display = "none";
-    } catch (err) {
-      console.error("Auth error:", err);
-      alert("Erreur connexion/inscription : " + (err.message || err));
-    }
+  try { await signInWithEmailAndPassword(auth, email, pass); loginBg.style.display = "none"; }
+  catch (e) {
+    try { await createUserWithEmailAndPassword(auth, email, pass); loginBg.style.display = "none"; }
+    catch (err) { console.error("Auth error:", err); alert("Erreur connexion/inscription : " + (err.message || err)); }
   }
 });
 loginGoogleBtn?.addEventListener("click", async () => {
-  try {
-    await signInWithPopup(auth, new GoogleAuthProvider());
-    loginBg.style.display = "none";
-  } catch (e) {
-    console.error("Google login error:", e);
-    alert("Erreur login Google");
-  }
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); loginBg.style.display = "none"; }
+  catch (e) { console.error("Google login error:", e); alert("Erreur login Google"); }
 });
 
 /* ================== onAuthStateChanged - main flow ================== */
@@ -795,11 +814,12 @@ onAuthStateChanged(auth, async (user) => {
     if (loginBg) loginBg.style.display = "none";
     try { await loadUserSettingsOrAsk(); } catch (e) { console.warn("loadUserSettingsOrAsk failed:", e); }
     try {
-      const now = new Date();
-      currentYear = now.getFullYear();
-      currentMonth = now.getMonth();
+      const now = new Date(); currentYear = now.getFullYear(); currentMonth = now.getMonth();
       await renderCalendar(currentYear, currentMonth);
     } catch (e) { console.error("renderCalendar error:", e); }
+
+    // start local checks & try to init FCM
+    startNotificationChecks();
     await ensureServiceWorkerRegistered();
     listenForegroundNotifications();
     if (!fcmInitialized) await enableNotificationsForCurrentUser().catch(() => {});
@@ -808,10 +828,11 @@ onAuthStateChanged(auth, async (user) => {
     if (loginBg) loginBg.style.display = "flex";
     calendar.innerHTML = "<div class='not-logged'>Connecte-toi pour voir le calendrier</div>";
     if (monthYear) monthYear.textContent = "";
+    stopNotificationChecks();
   }
 });
 
-/* optional auto enable notifications check (keeps previous behavior) */
+/* optional: keep existing auto-enable helper */
 async function enableNotificationsIfAuto() {
   try {
     if (!currentUser) return;
@@ -819,31 +840,23 @@ async function enableNotificationsIfAuto() {
     const snap = await getDoc(uRef);
     const auto = snap.exists() && snap.data().autoEnableNotifications;
     if (auto) await enableNotificationsForCurrentUser();
-  } catch (e) {
-    console.warn("autoEnableNotifications check failed", e);
-  }
+  } catch (e) { console.warn("autoEnableNotifications check failed", e); }
 }
 
-/* ================== Export helper for bot/app usage ================== */
-export async function getEcoleCredentials() {
-  ensureAuthed();
-  const snap = await getDoc(doc(db, "users", currentUser.uid));
-  if (!snap.exists()) return null;
-  const data = snap.data();
-  const identifiant = data.ecoleUser || "";
-  const motdepasse = decryptText(data.ecolePass || "");
-  return { identifiant, motdepasse };
-}
-
-/* ================== Trash interactions (drag hint) ================== */
+/* ================== Trash interactions UI ================== */
 trashDiv?.addEventListener("mouseenter", () => { trashDiv.classList.add("over"); });
 trashDiv?.addEventListener("mouseleave", () => { trashDiv.classList.remove("over"); });
 
 /* ================== Debug helpers ================== */
 window.__appDebug = {
-  getEcoleCredentials,
-  encryptText,
-  decryptText,
+  getEcoleCredentials: async () => {
+    ensureAuthed();
+    const snap = await getDoc(doc(db, "users", currentUser.uid));
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    return { identifiant: data.ecoleUser || "", motdepasse: decryptText(data.ecolePass || "") };
+  },
+  encryptText, decryptText,
   logout: () => signOut(auth)
 };
 
@@ -854,11 +867,10 @@ window.__appDebug = {
     if (auth.currentUser) {
       currentUser = auth.currentUser;
       await loadUserSettingsOrAsk().catch(console.error);
-      const now = new Date();
-      currentYear = now.getFullYear();
-      currentMonth = now.getMonth();
+      const now = new Date(); currentYear = now.getFullYear(); currentMonth = now.getMonth();
       await renderCalendar(currentYear, currentMonth);
       listenForegroundNotifications();
+      startNotificationChecks();
       if (!fcmInitialized) await enableNotificationsForCurrentUser();
     } else {
       if (loginBg) loginBg.style.display = "flex";
@@ -867,4 +879,3 @@ window.__appDebug = {
     console.error("Init error:", e);
   }
 })();
-

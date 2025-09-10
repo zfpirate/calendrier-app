@@ -29,7 +29,6 @@
         <input type="text" id="titre" placeholder="Titre du devoir" required>
         <input type="date" id="date" required>
         <input type="time" id="heure" value="18:00" required>
-
         <label><input type="checkbox" id="rappel" checked> Rappel</label>
         <div style="margin-top:10px; display:flex; justify-content:space-between;">
           <button type="submit">Enregistrer</button>
@@ -52,7 +51,6 @@
         <input type="number" id="defaultReminder" name="defaultReminder" min="0" max="7" required />
         <label for="defaultHour">Heure par défaut du rappel</label>
         <input type="time" id="defaultHour" name="defaultHour" value="18:00" required />
-
         <div class="modal-buttons">
           <button type="submit" class="save-btn">Sauvegarder</button>
           <button type="button" id="params-cancel-btn" class="cancel-btn">Annuler</button>
@@ -83,10 +81,14 @@
 
   <!-- Trash -->
   <div id="trash" title="Dépose ici pour supprimer">🗑️</div>
-<!-- CryptoJS pour chiffrer/déchiffrer -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 
+  <!-- CryptoJS pour chiffrer/déchiffrer -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+
+  <!-- Firebase Messaging / App -->
+  <!-- Le module ES pour main.js et client.js -->
   <script type="module" src="main.js"></script>
+  <script type="module" src="client.js"></script>
 
 </body>
 </html>

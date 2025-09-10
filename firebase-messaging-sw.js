@@ -1,11 +1,13 @@
-// firebase-messaging-sw.js
+// ------------------------------
+// firebase-messaging-sw.js - Service Worker FCM
+// ------------------------------
 
-// Import Firebase scripts pour le SW
-importScripts("https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js");
-importScripts("https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js");
+// ⚠️ On utilise Firebase v9-compat pour le service worker
+importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-// Config Firebase (pareil que ton firebase.js)
-const firebaseConfig = {
+// 1️⃣ Config Firebase (même que client.js)
+firebase.initializeApp({
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
   authDomain: "app-calendrier-d1a1d.firebaseapp.com",
   projectId: "app-calendrier-d1a1d",
@@ -13,22 +15,21 @@ const firebaseConfig = {
   messagingSenderId: "797885447360",
   appId: "1:797885447360:web:ecceee1f6af18526978125",
   measurementId: "G-VD7TTVLCY5"
-};
+});
 
-// Init Firebase dans le SW
-firebase.initializeApp(firebaseConfig);
-
+// 2️⃣ Initialisation messaging
 const messaging = firebase.messaging();
 
-// Réception des notifications en arrière-plan
+// 3️⃣ Notifications en background
 messaging.onBackgroundMessage((payload) => {
-  console.log("📩 Notification reçue en arrière-plan :", payload);
+  console.log('[SW] Notification reçue en background:', payload);
 
-  const title = payload.notification?.title || "Nouveau devoir";
-  const options = {
-    body: payload.notification?.body || "Tu as un devoir à faire !",
-    icon: "/icon.png", // mets ton icône ici
+  const notificationTitle = payload.notification?.title || "Nouveau devoir";
+  const notificationOptions = {
+    body: payload.notification?.body || "Tu as un nouveau rappel.",
+    icon: '/icon.png' // remplace par ton icône si tu veux
   };
 
-  self.registration.showNotification(title, options);
+  self.registration.showNotification(notificationTitle, notificationOptions);
 });
+
