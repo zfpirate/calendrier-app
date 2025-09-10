@@ -1,8 +1,8 @@
-// Import Firebase (⚠️ version stable dispo sur gstatic = 10.12.5)
-importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js");
-importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging.js");
+// firebase-messaging-sw.js
+importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js");
+importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js");
 
-// Config Firebase (même que client.js)
+// 🔥 Config Firebase
 firebase.initializeApp({
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
   authDomain: "app-calendrier-d1a1d.firebaseapp.com",
@@ -13,18 +13,15 @@ firebase.initializeApp({
   measurementId: "G-VD7TTVLCY5"
 });
 
-// Init messaging
 const messaging = firebase.messaging();
 
-// 📩 Gestion des notifications en background
+// Gestion des notifications en arrière-plan
 messaging.onBackgroundMessage((payload) => {
   console.log("📩 Message reçu en background:", payload);
-
-  const notificationTitle = payload.notification?.title || "Nouvelle notif";
-  const notificationOptions = {
-    body: payload.notification?.body || "Tu as reçu une notification",
-    icon: payload.notification?.icon || "/icon.png"
-  };
-
-  self.registration.showNotification(notificationTitle, notificationOptions);
+  const { title, body, icon } = payload.notification;
+  self.registration.showNotification(title, {
+    body,
+    icon: icon || "/icon.png"
+  });
 });
+
