@@ -1,11 +1,8 @@
-// ------------------------------
-// client.js - Notifications FCM (version finale)
-// ------------------------------
-
+// client.js
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.6.0/firebase-app.js";
 import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.6.0/firebase-messaging.js";
 
-// 1️⃣ Config Firebase
+// ⚡ Ton config Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
   authDomain: "app-calendrier-d1a1d.firebaseapp.com",
@@ -16,56 +13,57 @@ const firebaseConfig = {
   measurementId: "G-VD7TTVLCY5"
 };
 
-// 2️⃣ Initialisation Firebase (évite duplicate-app)
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-// 3️⃣ Messaging
+// ✅ Empêche d’initialiser deux fois
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const messaging = getMessaging(app);
 
-// 4️⃣ Fonction pour init FCM
+// --- Enregistrement du Service Worker ---
+async function registerServiceWorker() {
+  try {
+    // ⚠️ Ici on fixe bien le chemin
+    const registration = await navigator.serviceWorker.register("/calendrier-app/firebase-messaging-sw.js");
+    console.log("✅ Service Worker FCM enregistré:", registration);
+    return registration;
+  } catch (error) {
+    console.error("❌ Erreur lors de l'enregistrement du SW:", error);
+  }
+}
+
+// --- Initialisation de FCM ---
 async function initFCM() {
   try {
-    if (!('serviceWorker' in navigator)) {
-      console.error("Service Worker non supporté !");
-      return;
+    const registration = await registerServiceWorker();
+
+    if (Notification.permission === "default") {
+      await Notification.requestPermission();
     }
 
-    // Permission notifications
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") return console.log("Permission not granted");
+    if (Notification.permission === "granted") {
+      const currentToken = await getToken(messaging, {
+        vapidKey: "TA_CLE_VAPID", // Mets ta clé publique VAPID Firebase
+        serviceWorkerRegistration: registration
+      });
 
-    // Enregistre le service worker
-    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-    console.log('Service Worker enregistré ✅', registration);
+      if (currentToken) {
+        console.log("🔑 FCM token:", currentToken);
+      } else {
+        console.log("⚠️ Aucun token récupéré, permission refusée ?");
+      }
+    } else {
+      console.log("❌ Permission notifications refusée");
+    }
 
-    // ⚡️ Attendre que le SW soit actif
-    await navigator.serviceWorker.ready;
-
-    // Récupère le token FCM
-    const token = await getToken(messaging, {
-      vapidKey: "BEk1IzaUQOXzKFu7RIkILgmWic1IgWfMdAECHofkTC5D5kmUY6tC0lWVIUtqCyHdrD96aiccAYW5A00PTQHYBZM",
-      serviceWorkerRegistration: registration
+    // Réception de messages quand la page est ouverte
+    onMessage(messaging, (payload) => {
+      console.log("📩 Message reçu en foreground:", payload);
+      alert(`Notification: ${payload.notification.title}\n${payload.notification.body}`);
     });
-    console.log("Token FCM:", token);
-
-    // Abonne le token au topic 'allUsers' via Cloud Function
-    await fetch("https://us-central1-app-calendrier-d1a1d.cloudfunctions.net/subscribeToTopic", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token })
-    });
-    console.log("Utilisateur abonné au topic allUsers ✅");
 
   } catch (err) {
     console.error("Erreur FCM:", err);
   }
 }
 
-// 5️⃣ Lancer init
+// 🚀 Lancer l'init
 initFCM();
-
-// 6️⃣ Écouter notifications foreground
-onMessage(messaging, (payload) => {
-  console.log("Notification reçue :", payload);
-  // Ici tu peux afficher un toast ou notification custom dans la page
-});
