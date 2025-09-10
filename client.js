@@ -33,7 +33,8 @@ export async function initFCM() {
 
     // Récupère le token
     const currentToken = await getToken(messaging, {
-      vapidKey: "BEk1IzaUQOXzKFu7RIkILgmWic1IgWfMdAECHofkTC5D5kmUY6tC0lWVIUtqCyHdrD96aiccAYW5A00PTQHYBZM", // Mets ta VAPID key Web Push
+      const vapidKey = "BEk1IzaUQOXzKFu7RIkILgmWic1IgWfMdAECHofkTC5D5kmUY6tC0lWVIUtqCyHdrD96aiccAYW5A00PTQHYBZM";
+
       serviceWorkerRegistration: registration,
     });
 
