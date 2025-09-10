@@ -1,6 +1,6 @@
-// firebase-messaging-sw.js
-importScripts('https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js');
+// firebase-messaging-sw.js (à la racine)
+importScripts('https://www.gstatic.com/firebasejs/11.31.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/11.31.0/firebase-messaging-compat.js');
 
 firebase.initializeApp({
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
@@ -16,10 +16,12 @@ const messaging = firebase.messaging();
 
 // Optionnel : gérer les notifications en background
 messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Message en background reçu ', payload);
-  self.registration.showNotification(payload.notification.title, {
+  console.log('[SW] Message reçu en arrière-plan ', payload);
+  const notificationTitle = payload.notification.title;
+  const notificationOptions = {
     body: payload.notification.body,
-    icon: '/favicon.ico' // Assure-toi d'avoir ton favicon à la racine
-  });
+    icon: '/favicon.ico'
+  };
+  self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
