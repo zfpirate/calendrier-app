@@ -4,12 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Calendrier Devoirs</title>
+
+  <!-- Style et couleurs PWA -->
   <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#001f3f">  <!-- bleu foncé -->
+  <meta name="background-color" content="#0a0a0a"> <!-- fond noir -->
+
   <!-- Favicon pour notifications SW -->
   <link rel="icon" href="favicon.ico" type="image/x-icon">
 </head>
 <body>
 
+  <!-- Top bar -->
   <div id="top-bar">
     <div>
       <button id="prev-month-btn">&lt;</button>
@@ -21,6 +28,7 @@
     </div>
   </div>
 
+  <!-- Calendrier -->
   <div id="calendar"></div>
 
   <!-- Modals -->
@@ -42,6 +50,7 @@
     </div>
   </div>
 
+  <!-- Paramètres -->
   <div id="params-bg" style="display:none;">
     <div id="params">
       <h2>Paramètres</h2>
@@ -62,6 +71,7 @@
     </div>
   </div>
 
+  <!-- Liste des devoirs du jour -->
   <div id="dayTasks-bg">
     <div class="day-tasks">
       <h2 id="dayTasks-title">Devoirs</h2>
@@ -71,6 +81,7 @@
     </div>
   </div>
 
+  <!-- Login -->
   <div id="login-bg">
     <div class="login">
       <h2>Connexion</h2>
@@ -85,10 +96,8 @@
   <!-- Trash -->
   <div id="trash" title="Dépose ici pour supprimer">🗑️</div>
 
-  <!-- CryptoJS -->
+  <!-- Librairies -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-
-  <!-- Firebase modules -->
   <script type="module" src="main.js"></script>
   <script type="module" src="client.js"></script>
 
