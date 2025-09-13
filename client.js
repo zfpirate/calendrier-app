@@ -68,9 +68,7 @@ async function initFCM() {
       }
     });
 
-  } catch (err) {
-    console.error("❌ Erreur FCM:", err);
-  }
+  
 }
 
 // Lancer FCM après connexion utilisateur
