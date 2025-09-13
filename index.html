@@ -5,16 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Calendrier Devoirs</title>
 
-  <!-- Style et couleurs PWA -->
+  <!-- Styles et couleurs -->
   <link rel="stylesheet" href="style.css">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#001f3f">
   <meta name="background-color" content="#0a0a0a">
 
-  <!-- Favicon / icône PWA -->
-  <link rel="icon" href="/image/icone-app-192.jpg" type="image/jpeg">
-  <link rel="apple-touch-icon" href="/image/icone-app-192.jpg">
-
+  <!-- Favicon -->
+  <link rel="icon" href="/calendrier-app/image/icone-app-192.jpg" type="image/jpeg">
 </head>
 <body>
 
@@ -102,8 +100,21 @@
 
   <!-- Librairies -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-  <script type="module" src="main.js"></script>
-  <script type="module" src="client.js"></script>
+  <script type="module" src="/calendrier-app/main.js"></script>
+  <script type="module" src="/calendrier-app/client.js"></script>
+
+  <!-- ================== Render Calendar Minimal ================== -->
+  <script>
+    function renderCalendar() {
+      const calendarEl = document.getElementById("calendar");
+      if (!calendarEl) return;
+      const today = new Date();
+      calendarEl.innerHTML = `<p style="color:white; text-align:center;">Calendrier prêt (${today.toLocaleDateString()})</p>`;
+      document.getElementById("monthYear").textContent = today.toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
+    }
+    document.addEventListener("DOMContentLoaded", renderCalendar);
+  </script>
 
 </body>
 </html>
+

@@ -1,10 +1,8 @@
 // ===================== firebase-messaging-sw.js =====================
-
-// Import Firebase (compat pour Service Worker)
 importScripts('https://www.gstatic.com/firebasejs/11.0.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging-compat.js');
 
-// Config Firebase (même que dans firebase-config.js)
+// Config Firebase
 firebase.initializeApp({
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
   authDomain: "app-calendrier-d1a1d.firebaseapp.com",
@@ -15,47 +13,45 @@ firebase.initializeApp({
   measurementId: "G-VD7TTVLCY5"
 });
 
-// Initialize Firebase Messaging
 const messaging = firebase.messaging();
 
-// Notification background
-messaging.onBackgroundMessage(function(payload) {
-  console.log('[firebase-messaging-sw.js] Received background message ', payload);
-  const notificationTitle = payload.notification?.title || 'Notification';
-  const notificationOptions = {
-    body: payload.notification?.body || '',
-    icon: '/image/icone-notif.jpg' // Attention au chemin correct
-  };
-
-  self.registration.showNotification(notificationTitle, notificationOptions);
-});
-
-// ===================== Service Worker Cache basique =====================
-const CACHE_NAME = 'app-cache-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/style.css',
-  '/main.js',
-  '/client.js',
-  '/image/icone-app-192.jpg',
-  '/image/icone-app-512.jpg'
+// --- Mise en cache des fichiers essentiels ---
+const CACHE_NAME = "calendrier-cache-v1";
+const CACHE_FILES = [
+  "/calendrier-app/index.html",
+  "/calendrier-app/style.css",
+  "/calendrier-app/main.js",
+  "/calendrier-app/client.js",
+  "/calendrier-app/image/icone-app-192.jpg",
+  "/calendrier-app/image/icone-app-512.jpg"
 ];
 
-self.addEventListener('install', (event) => {
+self.addEventListener("install", (event) => {
+  console.log("[SW] Installation et cache des fichiers...");
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('[SW] Mise en cache des fichiers...');
-        return cache.addAll(urlsToCache);
-      })
-      .catch(err => console.warn('[SW] Erreur cache addAll:', err))
+      .then((cache) => cache.addAll(CACHE_FILES))
+      .catch((err) => console.warn("[SW] Erreur cache addAll:", err))
   );
 });
 
-self.addEventListener('fetch', (event) => {
+// Activation
+self.addEventListener("activate", (event) => {
+  console.log("[SW] Activé");
+});
+
+// Interception des requêtes
+self.addEventListener("fetch", (event) => {
   event.respondWith(
-    caches.match(event.request)
-      .then(response => response || fetch(event.request))
+    caches.match(event.request).then((resp) => resp || fetch(event.request))
   );
+});
+
+// Notifications en background
+messaging.onBackgroundMessage((payload) => {
+  console.log("[firebase-messaging-sw.js] Notification background:", payload);
+  self.registration.showNotification(payload.notification.title, {
+    body: payload.notification.body,
+    icon: "/calendrier-app/image/icone-notif.jpg"
+  });
 });
