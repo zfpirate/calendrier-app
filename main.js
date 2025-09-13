@@ -1,4 +1,4 @@
-// ===================== main.js =====================
+// ===================== main.js (adapté) =====================
 
 // --- Import de l'app Firebase centralisée ---
 import { app, db, auth } from "./firebase-config.js";
@@ -28,20 +28,20 @@ import {
   onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 
+// --- Messaging (FCM) ---
+import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging.js";
+
 // ===================== Etat global =====================
 let currentDate = new Date();
 let selectedDate = null;
 let currentUser = null;
-
-// Tâches mises en cache: { 'YYYY-MM-DD': [ {id, title, subject, date, time, isReminder, reminderDate, reminderTime} ] }
 let tasksByDate = {};
-let allTasks = []; // tableau plat pour recherche rapide
+let allTasks = [];
 
-// Paramètres utilisateur persistants
 let userSettings = {
-  defaultReminderDays: 0,  // jours avant la date du devoir
-  defaultHour: "18:00",    // heure par défaut des rappels
-  defaultDayMode: "today", // today | selected | nextSchoolDay
+  defaultReminderDays: 0,
+  defaultHour: "18:00",
+  defaultDayMode: "today",
 };
 
 // ===================== Helpers dates =====================
@@ -61,14 +61,11 @@ function isSameDay(d1, d2) {
 
 function nextSchoolDay(date = new Date()) {
   const d = new Date(date);
-  do {
-    d.setDate(d.getDate() + 1);
-  } while ([0,6].includes(d.getDay())); // 0=dimanche, 6=samedi
+  do { d.setDate(d.getDate() + 1); } while ([0,6].includes(d.getDay()));
   return d;
 }
 
 function clampReminderToFuture(reminderDate, reminderTime) {
-  // Empêche un rappel dans le passé. Si passé -> met aujourd'hui à maintenant + 1 minute.
   const now = new Date();
   const target = parseDateTime(reminderDate, reminderTime);
   if (target.getTime() <= now.getTime()) {
@@ -77,6 +74,71 @@ function clampReminderToFuture(reminderDate, reminderTime) {
   }
   return { date: reminderDate, time: reminderTime };
 }
+
+// ===================== FCM =====================
+const messaging = getMessaging(app);
+
+async function initFCM() {
+  try {
+    if (!("serviceWorker" in navigator)) return console.warn("Service worker non supporté");
+    if (!("Notification" in window)) return console.warn("Notifications non supportées");
+
+    console.log("🔄 Enregistrement du service worker FCM...");
+    const registration = await navigator.serviceWorker.register("./firebase-messaging-sw.js");
+    console.log("✅ Service Worker FCM enregistré:", registration);
+
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return console.warn("⚠️ Permission notifications refusée");
+
+    const token = await getToken(messaging, {
+      vapidKey: "BEk1IzaUQOXzKFu7RIkILgmWic1IgWfMdAECHofkTC5D5kmUY6tC0lWVIUtqCyHdrD96aiccAYW5A00PTQHYBZM",
+      serviceWorkerRegistration: registration
+    });
+
+    if (!token) return console.warn("⚠️ Aucun token FCM obtenu.");
+    console.log("🔑 FCM token:", token);
+
+    if (currentUser) {
+      await setDoc(doc(db, "fcmTokens", currentUser.uid), { token, updatedAt: new Date() });
+      console.log("💾 Token FCM enregistré en base.");
+    }
+
+    onMessage(messaging, (payload) => {
+      console.log("[FCM] Notification foreground:", payload);
+      if (Notification.permission === "granted") {
+        new Notification(payload.notification?.title || "Notification", {
+          body: payload.notification?.body || "",
+          icon: "./images/icone-notif.jpg"
+        });
+      } else {
+        alert(`${payload.notification?.title}\n${payload.notification?.body}`);
+      }
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur FCM:", err);
+  }
+}
+
+// ===================== AuthState & FCM =====================
+onAuthStateChanged(auth, async (user) => {
+  currentUser = user;
+  if (user) {
+    await loadUserSettings();
+    renderCalendar();
+    await loadTasksFromFirestore();
+    loginBg.style.display = "none";
+
+    // Initialiser FCM dès que connecté
+    await initFCM();
+  } else {
+    loginBg.style.display = "flex";
+    tasksByDate = {};
+    allTasks = [];
+    renderCalendar();
+  }
+});
+
 
 // ===================== Sélecteurs DOM =====================
 const elMonthYear = document.getElementById("monthYear");
