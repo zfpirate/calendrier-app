@@ -22,8 +22,8 @@ async function initFCM() {
     }
 
     console.log("🔄 Enregistrement du service worker FCM...");
-    // Chemin relatif pour GitHub Pages
-    const registration = await navigator.serviceWorker.register("./firebase-messaging-sw.js");
+    // ✅ Service Worker à la racine (important pour GitHub Pages)
+    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
     console.log("✅ Service Worker FCM enregistré:", registration);
 
     // Demande de permission
@@ -55,7 +55,7 @@ async function initFCM() {
       console.log("💾 Token FCM enregistré en base.");
     }
 
-    // Abonnement au topic allUsers
+    // Abonnement au topic allUsers (via ta Cloud Function)
     await fetch("https://us-central1-app-calendrier-d1a1d.cloudfunctions.net/subscribeToTopic", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -70,7 +70,7 @@ async function initFCM() {
       if (Notification.permission === "granted") {
         new Notification(payload.notification?.title || "Notification", {
           body: payload.notification?.body || "",
-          icon: "./images/icone-notif.jpg"
+          icon: "/images/icone-notif.jpg" // ✅ chemin absolu vers l’icône
         });
       } else {
         alert(`${payload.notification?.title}\n${payload.notification?.body}`);
@@ -88,3 +88,4 @@ onAuthStateChanged(auth, (user) => {
     initFCM();
   }
 });
+

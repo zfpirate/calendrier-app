@@ -1,11 +1,10 @@
 // ===================== firebase-messaging-sw.js =====================
-// Service Worker dédié à Firebase Cloud Messaging (FCM)
-// Doit être placé dans le même dossier que index.html (ex: /calendrier-app/firebase-messaging-sw.js)
 
+// Import des scripts Firebase (compat pour SW)
 importScripts('https://www.gstatic.com/firebasejs/11.0.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging-compat.js');
 
-// --- Config Firebase ---
+// Config Firebase (identique à firebase-config.js)
 firebase.initializeApp({
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
   authDomain: "app-calendrier-d1a1d.firebaseapp.com",
@@ -16,36 +15,40 @@ firebase.initializeApp({
   measurementId: "G-VD7TTVLCY5"
 });
 
+// Init Messaging
 const messaging = firebase.messaging();
 
-// ===================== Réception en arrière-plan =====================
-messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Message reçu en arrière-plan:', payload);
+// Notifications en arrière-plan
+messaging.onBackgroundMessage(function(payload) {
+  console.log('[firebase-messaging-sw.js] Notification background', payload);
 
-  const notificationTitle = payload.notification?.title || 'Rappel de devoir';
+  const notificationTitle = payload.notification?.title || 'Notification';
   const notificationOptions = {
     body: payload.notification?.body || '',
-    icon: './images/icone-notif.jpg',
-    badge: './images/icone-notif.jpg',
-    data: payload.data || {}
+    icon: '/images/icone-notif.jpg' // ✅ chemin absolu vers ton icône
   };
 
   self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
-// ===================== Clic sur la notification =====================
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
+// ===================== Cache de la PWA =====================
+self.addEventListener('install', (event) => {
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      for (const client of clientList) {
-        if (client.url.includes('/calendrier-app/index.html') && 'focus' in client) {
-          return client.focus();
-        }
-      }
-      if (clients.openWindow) {
-        return clients.openWindow('/calendrier-app/index.html');
-      }
+    caches.open('calendrier-cache-v1').then((cache) => {
+      return cache.addAll([
+        '/', // index.html
+        '/style.css',
+        '/main.js',
+        '/client.js',
+        '/images/icone-app.jpg',
+        '/images/icone-notif.jpg'
+      ]).catch(err => console.warn('⚠️ Fichier non trouvé, ignoré pour cache:', err));
     })
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  event.respondWith(
+    caches.match(event.request).then((response) => response || fetch(event.request))
   );
 });
