@@ -1,10 +1,12 @@
-// ===================== Service Worker pour PWA + FCM =====================
+// ===================== firebase-messaging-sw.js =====================
+// Service Worker dédié à Firebase Cloud Messaging (FCM)
+// Doit être placé à la racine du site (ex: /firebase-messaging-sw.js)
 
-// Import Firebase
+// Import Firebase compat (nécessaire pour FCM en SW)
 importScripts('https://www.gstatic.com/firebasejs/11.0.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging-compat.js');
 
-// Initialisation Firebase
+// --- Config Firebase (identique à client.js) ---
 firebase.initializeApp({
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
   authDomain: "app-calendrier-d1a1d.firebaseapp.com",
@@ -17,52 +19,36 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// ===================== Cache offline =====================
-const CACHE_NAME = 'calendrier-cache-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/style.css',
-  '/main.js',
-  '/client.js',
-  '/favicon.ico',
-  '/icon.png'
-];
+// ===================== Réception en arrière-plan =====================
+messaging.onBackgroundMessage((payload) => {
+  console.log('[firebase-messaging-sw.js] Message reçu en arrière-plan:', payload);
 
-// Installer le SW et mettre en cache les fichiers
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache))
-  );
-  self.skipWaiting();
-});
-
-// Activer le SW et nettoyer l’ancien cache si besoin
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(keys => Promise.all(
-      keys.map(key => {
-        if (key !== CACHE_NAME) return caches.delete(key);
-      })
-    ))
-  );
-  self.clients.claim();
-});
-
-// Intercepter les requêtes pour renvoyer le cache si offline
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request).then(response => response || fetch(event.request))
-  );
-});
-
-// ===================== Notifications Firebase =====================
-messaging.onBackgroundMessage(function(payload) {
-  console.log('[SW] Message en arrière-plan:', payload);
-  const notificationTitle = payload.notification?.title || 'Nouvelle notification';
+  const notificationTitle = payload.notification?.title || 'Rappel de devoir';
   const notificationOptions = {
     body: payload.notification?.body || '',
-    icon: '/icon.png'
+    icon: 'images/icone-notif.jpg', // ton icône de notif
+    badge: 'images/icone-notif.jpg', // petite icône sur Android
+    data: payload.data || {}
   };
+
   self.registration.showNotification(notificationTitle, notificationOptions);
+});
+
+// ===================== Clic sur la notification =====================
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Si une fenêtre est déjà ouverte, on la focus
+      for (const client of clientList) {
+        if (client.url.includes('/index.html') && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Sinon on ouvre une nouvelle fenêtre
+      if (clients.openWindow) {
+        return clients.openWindow('/index.html');
+      }
+    })
+  );
 });

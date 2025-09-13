@@ -1,393 +1,647 @@
-/* ================== Globals & DOM ================== */
-let currentUser, currentUserDoc, currentYear, currentMonth;
-let selectedDate, editingTaskId, preservedRappelDate;
-let defaultReminder = 1, defaultHour = "18:00";
-let fcmInitialized = false;
+// ===================== main.js =====================
 
-const modalBg = document.getElementById("modalBg");
-const dayTasksBg = document.getElementById("dayTasksBg");
-const paramsBg = document.getElementById("paramsBg");
-const modalTitle = document.getElementById("modalTitle");
-const matiereInput = document.getElementById("matiere");
-const titreInput = document.getElementById("titre");
-const dateInput = document.getElementById("date");
-const rappelCheckbox = document.getElementById("rappel");
-const heureInput = document.getElementById("heure");
-const deleteBtn = document.getElementById("deleteBtn");
-const cancelBtn = document.getElementById("cancelBtn");
-const taskForm = document.getElementById("taskForm");
-const dayTasksList = document.getElementById("dayTasksList");
-const dayTasksTitle = document.getElementById("dayTasksTitle");
-const dayTasksCloseBtn = document.getElementById("dayTasksCloseBtn");
-const dayTasksAddBtn = document.getElementById("dayTasksAddBtn");
-const prevMonthBtn = document.getElementById("prevMonth");
-const nextMonthBtn = document.getElementById("nextMonth");
-const settingsBtn = document.getElementById("settingsBtn");
-const userIdInput = document.getElementById("userId");
-const userPassInput = document.getElementById("userPass");
-const defaultReminderInput = document.getElementById("defaultReminder");
-const defaultHourInput = document.getElementById("defaultHour");
-const paramsCancelBtn = document.getElementById("paramsCancelBtn");
-const paramsForm = document.getElementById("paramsForm");
-const loginBg = document.getElementById("loginBg");
-const loginUserInput = document.getElementById("loginUser");
-const loginPassInput = document.getElementById("loginPass");
-const loginSubmitBtn = document.getElementById("loginSubmit");
-const loginGoogleBtn = document.getElementById("loginGoogle");
-const calendar = document.getElementById("calendar");
-const monthYear = document.getElementById("monthYear");
-const trashDiv = document.getElementById("trash");
+// Firebase modules (utilisent l'app par défaut initialisée dans client.js)
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  getDocs,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  query,
+  where,
+  orderBy,
+  serverTimestamp,
+  setDoc,
+} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
+  onAuthStateChanged,
+} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 
-/* ================== Panels helpers ================== */
-function closeAllPanels() {
-  try { modalBg.style.display = "none"; } catch {}
-  try { dayTasksBg.style.display = "none"; } catch {}
-  try { paramsBg.style.display = "none"; } catch {}
-}
-function closePanelsAndOpenModal(dateStr, taskId = null, taskData = null) {
-  closeAllPanels();
-  try { closeModal(); } catch {}
-  openModal(dateStr, taskId, taskData);
-}
+const db = getFirestore();
+const auth = getAuth();
 
-/* ================== Modal handlers (add / edit) ================== */
-function openModal(dateStr, taskId = null, taskData = null) {
-  selectedDate = dateStr;
-  editingTaskId = taskId;
+// ===================== Etat global =====================
+let currentDate = new Date();
+let selectedDate = null;
+let currentUser = null;
 
-  try { dayTasksBg.style.display = "none"; } catch {}
-  try { paramsBg.style.display = "none"; } catch {}
+// Tâches mises en cache: { 'YYYY-MM-DD': [ {id, title, subject, date, time, isReminder, reminderDate, reminderTime} ] }
+let tasksByDate = {};
+let allTasks = []; // tableau plat pour recherche rapide
 
-  modalBg.style.zIndex = "9999";
-  modalBg.style.display = "flex";
-  modalTitle.textContent = taskId ? "Modifier le devoir" : "Ajouter un devoir";
-
-  matiereInput.value = taskData?.matiere || "";
-  titreInput.value = taskData?.titre || "";
-  dateInput.value = taskData?.date || dateStr || "";
-  rappelCheckbox.checked = typeof taskData?.rappel === "undefined" ? true : !!taskData.rappel;
-  heureInput.value = taskData?.heure || defaultHour;
-
-  deleteBtn.style.display = taskId ? "inline-block" : "none";
-  try { matiereInput.focus(); } catch {}
-}
-
-function closeModal() {
-  try { modalBg.style.display = "none"; } catch {}
-  editingTaskId = null;
-  preservedRappelDate = null;
-  try { taskForm.reset(); } catch {}
-  try { deleteBtn.style.display = "none"; } catch {}
-}
-
-cancelBtn.addEventListener("click", () => { closeModal(); });
-
-deleteBtn.addEventListener("click", async () => {
-  if (!editingTaskId) return;
-  try {
-    await deleteDoc(doc(db, "devoirs", editingTaskId));
-    closeModal();
-    await renderCalendar(currentYear, currentMonth);
-  } catch (e) {
-    console.error("Erreur suppression devoir:", e);
-    alert("Impossible de supprimer le devoir.");
-  }
-});
-
-/* ================== Unified submit (create/edit) ================== */
-taskForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  try { ensureAuthed(); } catch { alert("Connecte-toi d'abord."); return; }
-
-  const matiere = matiereInput.value.trim();
-  const titre = titreInput.value.trim();
-  const dateVal = dateInput.value;
-  const rappel = !!rappelCheckbox.checked;
-  const heure = heureInput.value || defaultHour;
-
-  if (!matiere || !titre || !dateVal) { alert("Remplis tous les champs"); return; }
-
-  const controlDate = parseDate(dateVal);
-  const today = new Date(); today.setHours(0,0,0,0);
-  let rappelDateObj = new Date(controlDate);
-
-  if (rappel) {
-    rappelDateObj.setDate(rappelDateObj.getDate() - (Number(defaultReminder) || 0));
-    if (rappelDateObj < today) rappelDateObj = today;
-  } else {
-    rappelDateObj = controlDate;
-  }
-  const rappelDateStr = formatDate(rappelDateObj);
-
-  const payload = {
-    matiere,
-    titre,
-    date: dateVal,
-    heure,
-    rappel,
-    ownerUid: currentUser.uid,
-    year: controlDate.getFullYear(),
-    month: controlDate.getMonth(),
-    day: controlDate.getDate()
-  };
-
-  try {
-    if (editingTaskId) {
-      const docRef = doc(db, "devoirs", editingTaskId);
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        const old = snap.data();
-        const keepRappelDate = preservedRappelDate ?? old.rappelDate ?? rappelDateStr;
-        payload.rappelDate = keepRappelDate;
-      } else {
-        payload.rappelDate = rappelDateStr;
-      }
-      await updateDoc(docRef, payload);
-    } else {
-      payload.rappelDate = rappelDateStr;
-      await addDoc(collection(db, "devoirs"), payload);
-    }
-    closeModal();
-    await renderCalendar(currentYear, currentMonth);
-  } catch (err) {
-    console.error("Erreur sauvegarde devoir:", err);
-    alert("Erreur en sauvegardant le devoir. Vérifie la console pour err.code / err.message.");
-  }
-});
-
-/* ================== Day tasks modal ================== */
-function openDayTasksModal(dateStr) {
-  try { ensureAuthed(); } catch { calendar.innerHTML = "<div class='not-logged'>Connecte-toi</div>"; return; }
-  try { modalBg.style.display = "none"; } catch {}
-  dayTasksBg.style.display = "flex";
-  dayTasksTitle.textContent = `Devoirs du ${dateStr}`;
-  dayTasksList.innerHTML = "";
-  selectedDate = dateStr;
-  refreshDayTasksList(dateStr);
-}
-dayTasksCloseBtn.addEventListener("click", () => { dayTasksBg.style.display = "none"; });
-dayTasksAddBtn.addEventListener("click", () => { dayTasksBg.style.display = "none"; openModal(selectedDate); });
-
-async function refreshDayTasksList(dateStr) {
-  try {
-    const q = query(collection(db, "devoirs"), where("ownerUid", "==", currentUser.uid), where("rappelDate", "==", dateStr));
-    const snap = await getDocs(q);
-    dayTasksList.innerHTML = "";
-    snap.forEach(docSnap => {
-      const data = docSnap.data();
-      const div = document.createElement("div");
-      div.className = "day-task";
-      div.textContent = `${data.matiere} - ${data.titre}${data.heure ? " (" + data.heure + ")" : ""}`;
-      div.dataset.id = docSnap.id;
-      div.draggable = true;
-
-      // Drag start
-      div.addEventListener("dragstart", (e) => {
-        e.dataTransfer.setData("text/plain", docSnap.id);
-        trashDiv.classList.add("active");
-      });
-      // Double click edit
-      div.addEventListener("dblclick", () => {
-        editingTaskId = docSnap.id;
-        dayTasksBg.style.display = "none";
-        preservedRappelDate = data.rappelDate || dateStr;
-        openModal(dateStr, docSnap.id, data);
-      });
-      dayTasksList.appendChild(div);
-    });
-  } catch (e) {
-    console.error("refreshDayTasksList:", e);
-  }
-}
-
-/* ================== Trash drag/drop ================== */
-trashDiv?.addEventListener("dragover", (e) => e.preventDefault());
-trashDiv?.addEventListener("drop", async (e) => {
-  e.preventDefault();
-  const id = e.dataTransfer.getData("text/plain");
-  if (!id) return;
-  try { await deleteDoc(doc(db, "devoirs", id)); await renderCalendar(currentYear, currentMonth); } catch(e){console.error(e);}
-  trashDiv.classList.remove("active");
-});
-trashDiv?.addEventListener("dragleave", () => trashDiv.classList.remove("active"));
-
-/* ================== Navigation & settings ================== */
-prevMonthBtn?.addEventListener("click", () => {
-  let m = currentMonth - 1; let y = currentYear;
-  if (m < 0) { m = 11; y -= 1; }
-  renderCalendar(y, m);
-});
-nextMonthBtn?.addEventListener("click", () => {
-  let m = currentMonth + 1; let y = currentYear;
-  if (m > 11) { m = 0; y += 1; }
-  renderCalendar(y, m);
-});
-settingsBtn.addEventListener("click", () => { openParams(); });
-
-/* ================== Params modal (settings) ================== */
-function openParams() {
-  try { ensureAuthed(); } catch { alert("Connecte-toi d'abord."); return; }
-  userIdInput.value = currentUserDoc?.ecoleUser || "";
-  const enc = currentUserDoc?.ecolePass;
-  userPassInput.value = enc ? decryptText(enc) : "";
-  defaultReminderInput.value = currentUserDoc?.defaultReminder ?? defaultReminder ?? 1;
-  defaultHourInput.value = currentUserDoc?.defaultHour ?? defaultHour ?? "18:00";
-  paramsBg.style.display = "flex";
-}
-paramsCancelBtn.addEventListener("click", () => { paramsBg.style.display = "none"; });
-
-paramsForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  try { ensureAuthed(); } catch { alert("Connecte-toi d'abord."); return; }
-
-  const ecoleUser = userIdInput.value.trim();
-  const ecolePassPlain = userPassInput.value.trim();
-  const reminderVal = parseInt(defaultReminderInput.value, 10);
-  const hourVal = defaultHourInput.value || "18:00";
-
-  if (!ecoleUser || !ecolePassPlain || isNaN(reminderVal) || reminderVal < 0 || reminderVal > 365) {
-    alert("Remplis les paramètres correctement (jours de rappel: 0-365).");
-    return;
-  }
-
-  const ecolePass = encryptText(ecolePassPlain);
-  const userRef = doc(db, "users", currentUser.uid);
-  const data = { ecoleUser, ecolePass, defaultReminder: reminderVal, defaultHour: hourVal };
-
-  try {
-    await setDoc(userRef, data, { merge: true });
-    currentUserDoc = { ...(currentUserDoc || {}), ...data };
-    defaultReminder = reminderVal;
-    defaultHour = hourVal;
-    paramsBg.style.display = "none";
-    await renderCalendar(currentYear, currentMonth);
-    console.log("✅ Paramètres sauvegardés (mdp chiffré + heure).");
-  } catch (e) {
-    console.error("Erreur sauvegarde paramètres", e);
-    alert("Erreur: impossible d’enregistrer.");
-  }
-});
-
-/* ================== Auth UI handlers ================== */
-loginForm?.setAttribute("autocomplete", "on");
-loginSubmitBtn?.addEventListener("click", async () => {
-  const email = loginUserInput.value?.trim();
-  const pass = loginPassInput.value?.trim();
-  if (!email || !pass) { alert("Email / mot de passe requis."); return; }
-  try { await signInWithEmailAndPassword(auth, email, pass); loginBg.style.display = "none"; }
-  catch (e) {
-    try { await createUserWithEmailAndPassword(auth, email, pass); loginBg.style.display = "none"; }
-    catch (err) { console.error("Auth error:", err); alert("Erreur connexion/inscription : " + (err.message || err)); }
-  }
-});
-loginGoogleBtn?.addEventListener("click", async () => {
-  try { await signInWithPopup(auth, new GoogleAuthProvider()); loginBg.style.display = "none"; }
-  catch (e) { console.error("Google login error:", e); alert("Erreur login Google"); }
-});
-
-/* ================== onAuthStateChanged - main flow ================== */
-onAuthStateChanged(auth, async (user) => {
-  if (user) {
-    currentUser = user;
-    if (loginBg) loginBg.style.display = "none";
-    try { await loadUserSettingsOrAsk(); } catch (e) { console.warn("loadUserSettingsOrAsk failed:", e); }
-    try {
-      const now = new Date(); currentYear = now.getFullYear(); currentMonth = now.getMonth();
-      await renderCalendar(currentYear, currentMonth);
-    } catch (e) { console.error("renderCalendar error:", e); }
-
-    startNotificationChecks();
-    await ensureServiceWorkerRegistered();
-    listenForegroundNotifications();
-    if (!fcmInitialized) await enableNotificationsForCurrentUser().catch(() => {});
-  } else {
-    currentUser = null;
-    if (loginBg) loginBg.style.display = "flex";
-    calendar.innerHTML = "<div class='not-logged'>Connecte-toi pour voir le calendrier</div>";
-    if (monthYear) monthYear.textContent = "";
-    stopNotificationChecks();
-  }
-});
-
-/* ================== Debug helpers ================== */
-window.__appDebug = {
-  getEcoleCredentials: async () => {
-    ensureAuthed();
-    const snap = await getDoc(doc(db, "users", currentUser.uid));
-    if (!snap.exists()) return null;
-    const data = snap.data();
-    return { identifiant: data.ecoleUser || "", motdepasse: decryptText(data.ecolePass || "") };
-  },
-  encryptText, decryptText,
-  logout: () => signOut(auth)
+// Paramètres utilisateur persistants
+let userSettings = {
+  defaultReminderDays: 0,  // jours avant la date du devoir
+  defaultHour: "18:00",    // heure par défaut des rappels
+  defaultDayMode: "today", // today | selected | nextSchoolDay
 };
 
-/* ================== Init on load ================== */
-(async () => {
-  await ensureServiceWorkerRegistered().catch(() => {});
-  try {
-    if (auth.currentUser) {
-      currentUser = auth.currentUser;
-      await loadUserSettingsOrAsk().catch(console.error);
-      const now = new Date(); currentYear = now.getFullYear(); currentMonth = now.getMonth();
-      await renderCalendar(currentYear, currentMonth);
-      listenForegroundNotifications();
-      startNotificationChecks();
-      if (!fcmInitialized) await enableNotificationsForCurrentUser();
-    } else {
-      if (loginBg) loginBg.style.display = "flex";
+// ===================== Helpers dates =====================
+const pad2 = (n) => String(n).padStart(2, "0");
+const toDateKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const todayKey = () => toDateKey(new Date());
+
+function parseDateTime(dateStr, timeStr) {
+  return new Date(`${dateStr}T${timeStr}`);
+}
+
+function isSameDay(d1, d2) {
+  return d1.getFullYear() === d2.getFullYear() &&
+         d1.getMonth() === d2.getMonth() &&
+         d1.getDate() === d2.getDate();
+}
+
+function nextSchoolDay(date = new Date()) {
+  const d = new Date(date);
+  do {
+    d.setDate(d.getDate() + 1);
+  } while ([0,6].includes(d.getDay())); // 0=dim, 6=sam
+  return d;
+}
+
+function clampReminderToFuture(reminderDate, reminderTime) {
+  // Empêche un rappel dans le passé. Si passé -> met aujourd'hui à maintenant + 1 minute.
+  const now = new Date();
+  const target = parseDateTime(reminderDate, reminderTime);
+  if (target.getTime() <= now.getTime()) {
+    const r = new Date(now.getTime() + 60_000);
+    return { date: toDateKey(r), time: `${pad2(r.getHours())}:${pad2(r.getMinutes())}` };
+  }
+  return { date: reminderDate, time: reminderTime };
+}
+
+// ===================== Sélecteurs DOM =====================
+const elMonthYear = document.getElementById("monthYear");
+const elCalendar = document.getElementById("calendar");
+const btnPrev = document.getElementById("prev-month-btn");
+const btnNext = document.getElementById("next-month-btn");
+const btnSettings = document.getElementById("settings-btn");
+
+const modalBg = document.getElementById("modal-bg");
+const taskForm = document.getElementById("taskForm");
+const inputMatiere = document.getElementById("matiere");
+const inputTitre = document.getElementById("titre");
+const inputDate = document.getElementById("date");
+const inputHeure = document.getElementById("heure");
+const inputRappel = document.getElementById("rappel");
+const btnCancel = document.getElementById("cancel-btn");
+const btnDelete = document.getElementById("delete-btn");
+const modalTitle = document.getElementById("modal-title");
+
+const paramsBg = document.getElementById("params-bg");
+const paramsForm = document.getElementById("paramsForm");
+const inputUserId = document.getElementById("userId");
+const inputUserPass = document.getElementById("userPass");
+const inputDefaultReminder = document.getElementById("defaultReminder");
+const inputDefaultHour = document.getElementById("defaultHour");
+const btnParamsCancel = document.getElementById("params-cancel-btn");
+
+const dayTasksBg = document.getElementById("dayTasks-bg");
+const dayTasksTitle = document.getElementById("dayTasks-title");
+const dayTasksList = document.getElementById("dayTasks-list");
+const dayTasksAddBtn = document.getElementById("dayTasks-add-btn");
+const dayTasksCloseBtn = document.getElementById("dayTasks-close-btn");
+
+const loginBg = document.getElementById("login-bg");
+const loginUser = document.getElementById("loginUser");
+const loginPass = document.getElementById("loginPass");
+const loginSubmit = document.getElementById("loginSubmit");
+const loginGoogle = document.getElementById("loginGoogle");
+
+const trash = document.getElementById("trash");
+
+// Pour édition
+let editingTaskId = null;
+
+// ===================== Rendu du calendrier (continu) =====================
+function renderCalendar() {
+  elCalendar.innerHTML = "";
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  elMonthYear.textContent = currentDate.toLocaleString("fr-FR", { month: "long", year: "numeric" });
+
+  const firstDay = new Date(year, month, 1);
+  const startDay = (firstDay.getDay() + 6) % 7; // Lundi=0
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  // En-têtes jours
+  ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"].forEach((label) => {
+    const div = document.createElement("div");
+    div.className = "day-name";
+    div.textContent = label;
+    elCalendar.appendChild(div);
+  });
+
+  // Cases vides avant le 1er
+  for (let i = 0; i < startDay; i++) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    elCalendar.appendChild(empty);
+  }
+
+  // Logique "continu" : si la dernière semaine du mois est affichée, on ajoute 2 semaines du mois suivant
+  const lastWeekStart = daysInMonth - ((daysInMonth - startDay) % 7);
+  const extraDays = (lastWeekStart >= daysInMonth - 7) ? 14 : 0;
+
+  const totalDays = daysInMonth + extraDays;
+  for (let day = 1; day <= totalDays; day++) {
+    const isOverflow = day > daysInMonth;
+    const displayNum = isOverflow ? (day - daysInMonth) : day;
+    const dateObj = new Date(year, month, day);
+    const dateKey = toDateKey(dateObj);
+
+    const cell = document.createElement("div");
+    cell.className = "date";
+    if (isOverflow) cell.classList.add("continuous");
+    cell.dataset.date = dateKey;
+
+    const num = document.createElement("div");
+    num.className = "num";
+    num.textContent = displayNum;
+    cell.appendChild(num);
+
+    if (isSameDay(dateObj, new Date())) {
+      cell.classList.add("today");
+      const label = document.createElement("div");
+      label.className = "today-label";
+      label.textContent = "Aujourd'hui";
+      cell.appendChild(label);
     }
-  } catch (e) {
-    console.error("Init error:", e);
-  }
-})();
-/* ================== Firebase Messaging / PWA ================== */
-import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging.js";
 
-let messaging;
+    cell.addEventListener("click", () => openDayTasks(dateObj));
 
-async function ensureServiceWorkerRegistered() {
-  if (!("serviceWorker" in navigator)) return;
-  try {
-    console.log("🔄 Enregistrement du service worker...");
-    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
-    console.log("✅ Service Worker FCM enregistré:", registration);
-    return registration;
-  } catch (e) {
-    console.error("❌ Erreur enregistrement SW:", e);
+    // conteneur de tâches
+    const tasksDiv = document.createElement("div");
+    tasksDiv.className = "tasks";
+    cell.appendChild(tasksDiv);
+
+    elCalendar.appendChild(cell);
   }
+
+  // injecter les tâches déjà chargées en cache
+  injectTasksIntoCalendar();
 }
 
-async function enableNotificationsForCurrentUser() {
-  if (!currentUser) return;
-  try {
-    messaging = getMessaging(firebaseApp);
-    const registration = await ensureServiceWorkerRegistered();
-    const token = await getToken(messaging, { vapidKey: "BEk1IzaUQOXzKFu7RIkILgmWic1IgWfMdAECHofkTC5D5kmUY6tC0lWVIUtqCyHdrD96aiccAYW5A00PTQHYBZM", serviceWorkerRegistration: registration });
-    console.log("🔑 FCM token:", token);
-    fcmInitialized = true;
-  } catch (e) {
-    console.error("❌ Erreur initialisation FCM:", e);
-  }
-}
+// Injecte tasksByDate dans la grille existante
+function injectTasksIntoCalendar() {
+  document.querySelectorAll(".date").forEach((cell) => {
+    const date = cell.dataset.date;
+    const tasksDiv = cell.querySelector(".tasks");
+    tasksDiv.innerHTML = "";
 
-function listenForegroundNotifications() {
-  if (!messaging) return;
-  onMessage(messaging, (payload) => {
-    console.log("📩 Notification foreground reçue:", payload);
-    if (payload.notification) {
-      new Notification(payload.notification.title || "Devoir", {
-        body: payload.notification.body || "",
-        icon: payload.notification.icon || "/icon-192.png"
+    (tasksByDate[date] || []).forEach((task) => {
+      const t = document.createElement("div");
+      t.className = "task" + (task.isReminder ? " rappel" : "");
+      t.textContent = task.title;
+      t.title = task.subject ? `${task.subject} — ${task.title}` : task.title;
+      t.draggable = true;
+
+      t.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openTaskEditor(task);
       });
-    }
+
+      t.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("text/plain", task.id);
+        t.classList.add("dragging");
+      });
+      t.addEventListener("dragend", () => t.classList.remove("dragging"));
+
+      tasksDiv.appendChild(t);
+    });
   });
 }
 
-/* ================== Appel automatique pour init FCM ================== */
-(async () => {
-  if (currentUser && !fcmInitialized) {
-    await enableNotificationsForCurrentUser();
-    listenForegroundNotifications();
+// ===================== Chargement / Sauvegarde Firestore =====================
+async function loadTasksFromFirestore() {
+  if (!currentUser) return;
+  tasksByDate = {};
+  allTasks = [];
+
+  const q = query(
+    collection(db, "tasks"),
+    where("uid", "==", currentUser.uid),
+    orderBy("date", "asc")
+  );
+  const snap = await getDocs(q);
+  snap.forEach((d) => {
+    const data = d.data();
+    const task = { id: d.id, ...data };
+    allTasks.push(task);
+    if (!tasksByDate[task.date]) tasksByDate[task.date] = [];
+    tasksByDate[task.date].push(task);
+  });
+
+  injectTasksIntoCalendar();
+}
+
+async function saveTaskToFirestore(task) {
+  const ref = await addDoc(collection(db, "tasks"), {
+    ...task,
+    uid: currentUser.uid,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+async function updateTaskInFirestore(id, changes) {
+  await updateDoc(doc(db, "tasks", id), changes);
+}
+
+async function deleteTaskFromFirestore(id) {
+  await deleteDoc(doc(db, "tasks", id));
+}
+
+// ===================== Rappels (FCM hors-ligne) =====================
+// Ecrit un rappel planifié pour Cloud Functions -> FCM même app fermée
+async function scheduleFCMReminderFC(reminder) {
+  // reminder: { title, body, sendAtISO, topic? }
+  await addDoc(collection(db, "reminders"), {
+    uid: currentUser.uid,
+    title: reminder.title,
+    body: reminder.body || "",
+    sendAt: reminder.sendAtISO, // "YYYY-MM-DDTHH:mm"
+    topic: reminder.topic || "allUsers",
+    createdAt: serverTimestamp(),
+  });
+}
+
+// Limite 10 rappels par jour
+async function getReminderCountForDay(reminderDate) {
+  // On compte dans tasks les isReminder pour ce jour
+  const local = (tasksByDate[reminderDate] || []).filter((t) => t.isReminder).length;
+  // Pour robustesse, on vérifie en BD aussi
+  const q = query(
+    collection(db, "tasks"),
+    where("uid", "==", currentUser?.uid || ""),
+    where("isReminder", "==", true),
+    where("reminderDate", "==", reminderDate)
+  );
+  const snap = await getDocs(q);
+  const remote = snap.size;
+  // on prend le max (au cas où le cache serait désynchronisé)
+  return Math.max(local, remote);
+}
+
+// ===================== UI: Ouverture / Edition tâches =====================
+function openDayTasks(dateObj) {
+  selectedDate = dateObj;
+  dayTasksTitle.textContent = `Devoirs du ${dateObj.toLocaleDateString("fr-FR")}`;
+  renderDayTasksList(toDateKey(dateObj));
+  dayTasksBg.style.display = "flex";
+}
+
+function renderDayTasksList(dateKey) {
+  dayTasksList.innerHTML = "";
+  const list = tasksByDate[dateKey] || [];
+  if (list.length === 0) {
+    const empty = document.createElement("div");
+    empty.style.opacity = "0.7";
+    empty.textContent = "Aucun devoir ou rappel pour ce jour.";
+    dayTasksList.appendChild(empty);
+    return;
   }
-})();
+  list.forEach((task) => {
+    const item = document.createElement("div");
+    item.className = "task-item" + (task.isReminder ? " rappel" : "");
+    item.textContent = task.subject ? `${task.subject} — ${task.title}` : task.title;
+    item.addEventListener("click", () => openTaskEditor(task));
+    dayTasksList.appendChild(item);
+  });
+}
+
+function openTaskEditor(task = null) {
+  // Préparation modal
+  modalBg.style.display = "flex";
+  editingTaskId = task ? task.id : null;
+  modalTitle.textContent = task ? "Modifier le devoir" : "Ajouter un devoir";
+
+  // Pré-remplissage
+  const baseDate = (() => {
+    if (task) return task.date;
+    if (!selectedDate) return todayKey();
+    if (userSettings.defaultDayMode === "today") return todayKey();
+    if (userSettings.defaultDayMode === "selected") return toDateKey(selectedDate);
+    if (userSettings.defaultDayMode === "nextSchoolDay") return toDateKey(nextSchoolDay(selectedDate));
+    return todayKey();
+  })();
+
+  inputMatiere.value = task?.subject || "";
+  inputTitre.value = task?.title || "";
+  inputDate.value = task?.date || baseDate;
+  inputHeure.value = task?.time || userSettings.defaultHour || "18:00";
+  inputRappel.checked = task?.isReminder || false;
+
+  // Afficher/masquer bouton supprimer
+  btnDelete.style.display = task ? "inline-block" : "none";
+}
+
+// ===================== Validations contraintes =====================
+function ensureNoHomeworkBeforeToday(dateStr) {
+  const d = new Date(dateStr);
+  const t = new Date();
+  t.setHours(0,0,0,0);
+  if (d.getTime() < t.getTime()) {
+    throw new Error("Impossible d'ajouter un devoir avant aujourd'hui.");
+  }
+}
+
+function ensureReminderInFuture(reminderDate, reminderTime) {
+  const now = new Date();
+  const r = parseDateTime(reminderDate, reminderTime);
+  if (r.getTime() <= now.getTime()) {
+    throw new Error("Le rappel ne peut pas être dans le passé.");
+  }
+}
+
+async function ensureMaxReminders(reminderDate) {
+  const count = await getReminderCountForDay(reminderDate);
+  if (count >= 10) {
+    throw new Error("Limite de 10 rappels par jour atteinte.");
+  }
+}
+
+// ===================== Soumission / Suppression =====================
+taskForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!currentUser) {
+    alert("Connecte-toi pour enregistrer des devoirs.");
+    return;
+  }
+  try {
+    const subject = inputMatiere.value.trim();
+    const title = inputTitre.value.trim();
+    const dateStr = inputDate.value;
+    const timeStr = inputHeure.value || "18:00";
+    const wantsReminder = inputRappel.checked;
+
+    if (!subject || !title || !dateStr) throw new Error("Tous les champs sont requis.");
+    ensureNoHomeworkBeforeToday(dateStr);
+
+    let reminderDate = dateStr;
+    let reminderTime = timeStr;
+
+    // Si l'utilisateur veut un rappel, appliquer réglages par défaut (J- X jours, heure par défaut) si édition/ajout
+    if (wantsReminder) {
+      const d = new Date(dateStr);
+      if (typeof userSettings.defaultReminderDays === "number" && userSettings.defaultReminderDays > 0) {
+        d.setDate(d.getDate() - userSettings.defaultReminderDays);
+        reminderDate = toDateKey(d);
+      }
+      reminderTime = userSettings.defaultHour || timeStr;
+
+      // Si la date/heure par défaut est déjà passée -> mettre aujourd'hui/maintenant+1min
+      const clamped = clampReminderToFuture(reminderDate, reminderTime);
+      reminderDate = clamped.date;
+      reminderTime = clamped.time;
+
+      // Respecter limite 10/jour
+      await ensureMaxReminders(reminderDate);
+
+      // Garantir futur
+      ensureReminderInFuture(reminderDate, reminderTime);
+    }
+
+    // Construction du document
+    const payload = {
+      subject,
+      title,
+      date: dateStr,
+      time: timeStr,
+      isReminder: !!wantsReminder,
+    };
+    if (wantsReminder) {
+      payload.reminderDate = reminderDate;
+      payload.reminderTime = reminderTime;
+    }
+
+    if (editingTaskId) {
+      // Ne pas modifier le rappel si on édite "sans changer le rappel"
+      // -> on met à jour seulement les champs hors rappel, sauf si rappel décoché
+      const original = allTasks.find((t) => t.id === editingTaskId);
+      if (!original) throw new Error("Tâche introuvable.");
+
+      const changes = {
+        subject,
+        title,
+        date: dateStr,
+        time: timeStr,
+      };
+
+      if (!wantsReminder && original.isReminder) {
+        // Suppression du rappel
+        changes.isReminder = false;
+        changes.reminderDate = null;
+        changes.reminderTime = null;
+      } else if (wantsReminder && !original.isReminder) {
+        // Ajout d'un rappel (nouveau) => contraintes appliquées ci-dessus
+        changes.isReminder = true;
+        changes.reminderDate = reminderDate;
+        changes.reminderTime = reminderTime;
+      }
+      await updateTaskInFirestore(editingTaskId, changes);
+
+      // Si on a ajouté un nouveau rappel via l'édition, on planifie FCM
+      if (wantsReminder && !original.isReminder) {
+        await scheduleFCMReminderFC({
+          title: `Rappel: ${title}`,
+          body: subject ? `Matière: ${subject}` : "",
+          sendAtISO: `${reminderDate}T${reminderTime}`,
+        });
+      }
+    } else {
+      // Nouvelle tâche
+      const newId = await saveTaskToFirestore(payload);
+
+      // Si rappel demandé, on planifie FCM
+      if (wantsReminder) {
+        await scheduleFCMReminderFC({
+          title: `Rappel: ${title}`,
+          body: subject ? `Matière: ${subject}` : "",
+          sendAtISO: `${reminderDate}T${reminderTime}`,
+        });
+      }
+    }
+
+    modalBg.style.display = "none";
+    editingTaskId = null;
+
+    await loadTasksFromFirestore();
+    if (selectedDate) renderDayTasksList(toDateKey(selectedDate));
+  } catch (err) {
+    alert(err.message || String(err));
+  }
+});
+
+btnCancel.addEventListener("click", () => {
+  modalBg.style.display = "none";
+  editingTaskId = null;
+});
+
+btnDelete.addEventListener("click", async () => {
+  if (!editingTaskId) return;
+  if (!confirm("Supprimer ce devoir/rappel ?")) return;
+  await deleteTaskFromFirestore(editingTaskId);
+  modalBg.style.display = "none";
+  editingTaskId = null;
+  await loadTasksFromFirestore();
+  if (selectedDate) renderDayTasksList(toDateKey(selectedDate));
+});
+
+// ===================== DayTasks actions =====================
+dayTasksAddBtn.addEventListener("click", () => {
+  openTaskEditor(null);
+});
+dayTasksCloseBtn.addEventListener("click", () => {
+  dayTasksBg.style.display = "none";
+});
+
+// ===================== Drag & drop -> Poubelle =====================
+trash.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  trash.classList.add("drag-over");
+});
+trash.addEventListener("dragleave", () => trash.classList.remove("drag-over"));
+trash.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  trash.classList.remove("drag-over");
+  const taskId = e.dataTransfer.getData("text/plain");
+  if (!taskId) return;
+  if (!confirm("Supprimer cet élément ?")) return;
+  await deleteTaskFromFirestore(taskId);
+  await loadTasksFromFirestore();
+  if (selectedDate) renderDayTasksList(toDateKey(selectedDate));
+});
+
+// ===================== Paramètres (persistants Firestore) =====================
+async function loadUserSettings() {
+  if (!currentUser) return;
+  const ref = doc(db, "settings", currentUser.uid);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    const data = snap.data();
+    userSettings = {
+      defaultReminderDays: Number.isFinite(data.defaultReminderDays) ? data.defaultReminderDays : 0,
+      defaultHour: data.defaultHour || "18:00",
+      defaultDayMode: data.defaultDayMode || "today",
+    };
+  } else {
+    // Créer avec valeurs par défaut
+    await setDoc(ref, userSettings);
+  }
+  // Remplir formulaire
+  inputDefaultReminder.value = userSettings.defaultReminderDays;
+  inputDefaultHour.value = userSettings.defaultHour;
+  // Champs userId/userPass: on peut les laisser vides (info locale)
+}
+
+async function saveUserSettings() {
+  if (!currentUser) return;
+  const ref = doc(db, "settings", currentUser.uid);
+  userSettings.defaultReminderDays = Math.max(0, Math.min(7, parseInt(inputDefaultReminder.value || "0", 10)));
+  userSettings.defaultHour = inputDefaultHour.value || "18:00";
+  await setDoc(ref, userSettings, { merge: true });
+}
+
+btnSettings.addEventListener("click", async () => {
+  if (!currentUser) {
+    alert("Connecte-toi pour modifier tes paramètres.");
+    return;
+  }
+  await loadUserSettings();
+  paramsBg.style.display = "flex";
+});
+
+paramsForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    await saveUserSettings();
+    paramsBg.style.display = "none";
+    alert("Paramètres enregistrés.");
+  } catch (e2) {
+    alert("Erreur lors de l'enregistrement des paramètres.");
+  }
+});
+btnParamsCancel.addEventListener("click", () => {
+  paramsBg.style.display = "none";
+});
+
+// ===================== Navigation mois =====================
+btnPrev.addEventListener("click", async () => {
+  currentDate.setMonth(currentDate.getMonth() - 1);
+  renderCalendar();
+  await loadTasksFromFirestore();
+});
+btnNext.addEventListener("click", async () => {
+  currentDate.setMonth(currentDate.getMonth() + 1);
+  renderCalendar();
+  await loadTasksFromFirestore();
+});
+
+// ===================== Auth =====================
+loginSubmit.addEventListener("click", async () => {
+  try {
+    // Ajout d'attributs autocomplete recommandés (réduira les warnings)
+    loginPass.setAttribute("autocomplete", "current-password");
+    inputUserPass.setAttribute("autocomplete", "current-password");
+
+    const email = (loginUser.value || "").trim();
+    const pass = loginPass.value || "";
+    if (!email || !pass) {
+      alert("Email et mot de passe requis.");
+      return;
+    }
+    try {
+      await signInWithEmailAndPassword(auth, email, pass);
+    } catch {
+      await createUserWithEmailAndPassword(auth, email, pass);
+    }
+    loginBg.style.display = "none";
+  } catch (err) {
+    alert(err.message || String(err));
+  }
+});
+
+loginGoogle.addEventListener("click", async () => {
+  const provider = new GoogleAuthProvider();
+  try {
+    await signInWithPopup(auth, provider);
+    loginBg.style.display = "none";
+  } catch (err) {
+    alert(err.message || String(err));
+  }
+});
+
+onAuthStateChanged(auth, async (user) => {
+  currentUser = user;
+  if (user) {
+    // Charger paramètres + tâches
+    await loadUserSettings();
+    renderCalendar();
+    await loadTasksFromFirestore();
+    // Masquer l'écran de login si visible
+    loginBg.style.display = "none";
+  } else {
+    // Montrer l'écran de login
+    loginBg.style.display = "flex";
+    // Vider l'UI
+    tasksByDate = {};
+    allTasks = [];
+    renderCalendar();
+  }
+});
+
+// ===================== Initialisation =====================
+document.addEventListener("DOMContentLoaded", () => {
+  // Rendu initial (sans tâches si pas connecté)
+  renderCalendar();
+});
