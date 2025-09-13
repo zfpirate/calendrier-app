@@ -1,8 +1,10 @@
 // ===================== main.js =====================
 
-// Firebase modules (utilisent l'app par défaut initialisée dans client.js)
+// --- Import de l'app Firebase centralisée ---
+import { app, db, auth } from "./firebase-config.js";
+
+// --- Firestore functions ---
 import {
-  getFirestore,
   collection,
   addDoc,
   getDocs,
@@ -16,17 +18,15 @@ import {
   serverTimestamp,
   setDoc,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+// --- Auth functions ---
 import {
-  getAuth,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
   signInWithPopup,
   onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
-
-const db = getFirestore();
-const auth = getAuth();
 
 // ===================== Etat global =====================
 let currentDate = new Date();
@@ -63,7 +63,7 @@ function nextSchoolDay(date = new Date()) {
   const d = new Date(date);
   do {
     d.setDate(d.getDate() + 1);
-  } while ([0,6].includes(d.getDay())); // 0=dim, 6=sam
+  } while ([0,6].includes(d.getDay())); // 0=dimanche, 6=samedi
   return d;
 }
 
