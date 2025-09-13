@@ -1,15 +1,12 @@
 // ===================== client.js =====================
 
-// --- Imports Firebase depuis config centralisée ---
-import { app, auth, db } from "./firebase-config.js";
-import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging.js";
+// Imports depuis firebase-config.js
+import { app, auth, db, messaging } from "./firebase-config.js";
+import { getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import { doc, setDoc } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
-// --- Init Messaging ---
-const messaging = getMessaging(app);
-
-// ===================== Init FCM =====================
+// ===================== Initialisation FCM =====================
 async function initFCM() {
   try {
     if (!("serviceWorker" in navigator)) {
@@ -22,8 +19,7 @@ async function initFCM() {
     }
 
     console.log("🔄 Enregistrement du service worker FCM...");
-    // ✅ Service Worker à la racine (important pour GitHub Pages)
-    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    const registration = await navigator.serviceWorker.register("./firebase-messaging-sw.js");
     console.log("✅ Service Worker FCM enregistré:", registration);
 
     // Demande de permission
@@ -46,7 +42,7 @@ async function initFCM() {
 
     console.log("🔑 FCM token:", token);
 
-    // Sauvegarde du token dans Firestore
+    // Sauvegarde du token dans Firestore si utilisateur connecté
     if (auth.currentUser) {
       await setDoc(doc(db, "fcmTokens", auth.currentUser.uid), {
         token,
@@ -55,24 +51,14 @@ async function initFCM() {
       console.log("💾 Token FCM enregistré en base.");
     }
 
-    // Abonnement au topic allUsers (via ta Cloud Function)
-    await fetch("https://us-central1-app-calendrier-d1a1d.cloudfunctions.net/subscribeToTopic", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token })
-    });
-
-    console.log("📡 Abonné au topic allUsers");
-
     // Notifications en premier plan
     onMessage(messaging, (payload) => {
       console.log("[client.js] Notification foreground:", payload);
       if (Notification.permission === "granted") {
         new Notification(payload.notification?.title || "Notification", {
-         body: payload.notification?.body || "",
-         icon: "./images/icone-notif-192.jpg"
-         });
-
+          body: payload.notification?.body || "",
+          icon: "./image/icone-notif.jpg"
+        });
       } else {
         alert(`${payload.notification?.title}\n${payload.notification?.body}`);
       }
@@ -89,4 +75,3 @@ onAuthStateChanged(auth, (user) => {
     initFCM();
   }
 });
-
