@@ -1,9 +1,9 @@
 // ===================== firebase-config.js =====================
-// Import des fonctions Firebase
-import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
-import { getMessaging } from "firebase/messaging";
+
+// Import Firebase depuis le CDN
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import { getAuth } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+import { getFirestore } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
 // Config Firebase
 const firebaseConfig = {
@@ -16,13 +16,8 @@ const firebaseConfig = {
   measurementId: "G-VD7TTVLCY5"
 };
 
-// Initialisation de Firebase
-const app = initializeApp(firebaseConfig);
+// Initialisation Firebase
+export const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
 
-// Initialisation des services
-const auth = getAuth(app);
-const db = getFirestore(app);
-const messaging = getMessaging(app);
-
-// Export pour l'utiliser dans tes autres fichiers
-export { app, auth, db, messaging };
