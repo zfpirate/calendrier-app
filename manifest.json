@@ -5,19 +5,19 @@
   "display": "standalone",
   "background_color": "#0a0a0a",
   "theme_color": "#001f3f",
-  "description": "Application de calendrier pour gérer tes devoirs avec rappels.",
   "icons": [
     {
-      "src": "images/icone-app.jpg",
+      "src": "./images/icone-app-192.jpg",
       "sizes": "192x192",
       "type": "image/jpeg"
     },
     {
-      "src": "images/icone-app.jpg",
+      "src": "./images/icone-app-512.jpg",
       "sizes": "512x512",
       "type": "image/jpeg"
     }
   ]
 }
+
 
 

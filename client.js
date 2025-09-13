@@ -69,9 +69,10 @@ async function initFCM() {
       console.log("[client.js] Notification foreground:", payload);
       if (Notification.permission === "granted") {
         new Notification(payload.notification?.title || "Notification", {
-          body: payload.notification?.body || "",
-          icon: "/images/icone-notif.jpg" // ✅ chemin absolu vers l’icône
-        });
+         body: payload.notification?.body || "",
+         icon: "./images/icone-notif-192.jpg"
+         });
+
       } else {
         alert(`${payload.notification?.title}\n${payload.notification?.body}`);
       }
