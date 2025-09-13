@@ -1,6 +1,6 @@
 // ===================== firebase-messaging-sw.js =====================
 // Service Worker dédié à Firebase Cloud Messaging (FCM)
-// Doit être placé à la racine du site (ex: /firebase-messaging-sw.js)
+// Doit être placé dans le même dossier que index.html (ex: /calendrier-app/firebase-messaging-sw.js)
 
 // Import Firebase compat (nécessaire pour FCM en SW)
 importScripts('https://www.gstatic.com/firebasejs/11.0.2/firebase-app-compat.js');
@@ -26,8 +26,8 @@ messaging.onBackgroundMessage((payload) => {
   const notificationTitle = payload.notification?.title || 'Rappel de devoir';
   const notificationOptions = {
     body: payload.notification?.body || '',
-    icon: 'images/icone-notif.jpg', // ton icône de notif
-    badge: 'images/icone-notif.jpg', // petite icône sur Android
+    icon: './images/icone-notif.jpg',  // chemin relatif au SW
+    badge: './images/icone-notif.jpg', // petite icône sur Android
     data: payload.data || {}
   };
 
@@ -41,14 +41,15 @@ self.addEventListener('notificationclick', (event) => {
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       // Si une fenêtre est déjà ouverte, on la focus
       for (const client of clientList) {
-        if (client.url.includes('/index.html') && 'focus' in client) {
+        if (client.url.includes('/calendrier-app/index.html') && 'focus' in client) {
           return client.focus();
         }
       }
       // Sinon on ouvre une nouvelle fenêtre
       if (clients.openWindow) {
-        return clients.openWindow('/index.html');
+        return clients.openWindow('/calendrier-app/index.html');
       }
     })
   );
 });
+

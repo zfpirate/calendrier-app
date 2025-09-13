@@ -1,26 +1,12 @@
 // ===================== client.js =====================
 
-// --- Firebase imports ---
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+// --- Imports Firebase ---
+import { app, auth, db } from "./firebase-config.js"; // réutilise l'app initialisée
 import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging.js";
-import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
-import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+import { doc, setDoc } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
-// --- Config Firebase ---
-const firebaseConfig = {
-  apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
-  authDomain: "app-calendrier-d1a1d.firebaseapp.com",
-  projectId: "app-calendrier-d1a1d",
-  storageBucket: "app-calendrier-d1a1d.appspot.com",
-  messagingSenderId: "797885447360",
-  appId: "1:797885447360:web:ecceee1f6af18526978125",
-  measurementId: "G-VD7TTVLCY5"
-};
-
-// --- Init Firebase ---
-export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+// --- Init Messaging ---
 const messaging = getMessaging(app);
 
 // ===================== Init FCM =====================
@@ -36,10 +22,11 @@ async function initFCM() {
     }
 
     console.log("🔄 Enregistrement du service worker FCM...");
-    // IMPORTANT: le fichier doit être à la racine du site
-    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    // IMPORTANT : chemin relatif pour GitHub Pages
+    const registration = await navigator.serviceWorker.register("./firebase-messaging-sw.js");
     console.log("✅ Service Worker FCM enregistré:", registration);
 
+    // Demander la permission après un clic utilisateur
     const permission = await Notification.requestPermission();
     if (permission !== "granted") {
       console.warn("⚠️ Permission notifications refusée");
@@ -94,9 +81,10 @@ async function initFCM() {
   }
 }
 
-// Lancer FCM après connexion utilisateur
+// ===================== Lancement après connexion =====================
 onAuthStateChanged(auth, (user) => {
   if (user) {
+    // Ici, on pourrait déclencher initFCM() après un clic bouton "Activer notifications"
     initFCM();
   }
 });
