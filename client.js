@@ -1,18 +1,13 @@
-// ===================== client.js =====================
-
-// Imports Firebase Messaging depuis CDN
 import { app, auth, db } from "./firebase-config.js";
 import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import { doc, setDoc } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
-// Init Messaging
 const messaging = getMessaging(app);
 
-// ===================== Init FCM =====================
 async function initFCM() {
   try {
-    if (!("serviceWorker" in navigator)) return console.warn("Service workers non supportés");
+    if (!("serviceWorker" in navigator)) return console.warn("Service worker non supporté");
     if (!("Notification" in window)) return console.warn("Notifications non supportées");
 
     console.log("🔄 Enregistrement du service worker FCM...");
@@ -27,7 +22,7 @@ async function initFCM() {
       serviceWorkerRegistration: registration
     });
 
-    if (!token) return console.warn("⚠️ Aucun token FCM obtenu");
+    if (!token) return console.warn("⚠️ Aucun token FCM obtenu.");
     console.log("🔑 FCM token:", token);
 
     if (auth.currentUser) {
@@ -35,13 +30,12 @@ async function initFCM() {
       console.log("💾 Token FCM enregistré en base.");
     }
 
-    // Notifications en premier plan
-    onMessage(messaging, payload => {
+    onMessage(messaging, (payload) => {
       console.log("[client.js] Notification foreground:", payload);
       if (Notification.permission === "granted") {
         new Notification(payload.notification?.title || "Notification", {
           body: payload.notification?.body || "",
-          icon: "./image/icone-notif.jpg"
+          icon: "./images/icone-notif.jpg"
         });
       } else {
         alert(`${payload.notification?.title}\n${payload.notification?.body}`);
@@ -53,7 +47,7 @@ async function initFCM() {
   }
 }
 
-// Lancer FCM après connexion utilisateur
-onAuthStateChanged(auth, user => {
+onAuthStateChanged(auth, (user) => {
   if (user) initFCM();
 });
+
