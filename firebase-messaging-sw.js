@@ -14,6 +14,13 @@ firebase.initializeApp({
 });
 
 const messaging = firebase.messaging();
+// Dans firebase-messaging-sw.js
+self.addEventListener('install', event => {
+  self.skipWaiting();
+});
+self.addEventListener('activate', event => {
+  clients.claim();
+});
 
 // --- Mise en cache des fichiers essentiels ---
 const CACHE_NAME = "calendrier-cache-v1";
