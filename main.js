@@ -311,14 +311,14 @@ function renderDayTasksList(dateKey) {
 
 // Ouvre modal ajouter / éditer devoir
 function openTaskEditor(task = null) {
-  // Masquer le modal jour si ouvert
+
   dayTasksBg.style.display = "none";
 
   modalBg.style.display = "flex";
   editingTaskId = task ? task.id : null;
   modalTitle.textContent = task ? "Modifier le devoir" : "Ajouter un devoir";
 
-  // Définir date par défaut = date de la case cliquée
+
   const baseDate = task?.date || toDateKey(selectedDate || new Date());
 
   inputMatiere.value = task?.subject || "";
@@ -328,7 +328,7 @@ function openTaskEditor(task = null) {
   inputRappel.checked = task?.isReminder !== undefined ? task.isReminder : true; // case cochée par défaut
 }
 
-// Boutons jour
+
 dayTasksAddBtn.addEventListener("click", () => {
   openTaskEditor(null); // ouvre modal ajouter
 });
@@ -348,5 +348,3 @@ loginSubmit.addEventListener("click",async ()=>{
   }catch(err){alert(err.message||String(err));}
 });
 loginGoogle.addEventListener("click",()=>{const provider=new GoogleAuthProvider();signInWithPopup(auth,provider).catch(err=>alert(err.message||String(err)));});
-
-// ===============
