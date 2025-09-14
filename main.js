@@ -194,9 +194,6 @@ async function getReminderCountForDay(reminderDate){
 }
 
 // ===================== Task UI =====================
-
-function renderDayTasksList(dateKey){dayTasksList.innerHTML="";const list=tasksByDate[dateKey]||[];if(list.length===0){const empty=document.createElement("div");empty.style.opacity="0.7";empty.textContent="Aucun devoir ou rappel pour ce jour.";dayTasksList.appendChild(empty);return;} list.forEach(task=>{const item=document.createElement("div");item.className="task-item"+(task.isReminder?" rappel":"");item.textContent=task.subject?`${task.subject} — ${task.title}`:task.title;item.addEventListener("click",()=>openTaskEditor(task));dayTasksList.appendChild(item);});}
-
 function openTaskEditor(task=null){
   modalBg.style.display="flex";editingTaskId=task?task.id:null;modalTitle.textContent=task?"Modifier le devoir":"Ajouter un devoir";
   const baseDate=task?task.date:(!selectedDate?todayKey():toDateKey(selectedDate));
