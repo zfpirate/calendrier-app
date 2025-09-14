@@ -194,7 +194,7 @@ async function getReminderCountForDay(reminderDate){
 }
 
 // ===================== Task UI =====================
-function openDayTasks(dateObj){selectedDate=dateObj;dayTasksTitle.textContent=`Devoirs du ${dateObj.toLocaleDateString("fr-FR")}`;renderDayTasksList(toDateKey(dateObj));dayTasksBg.style.display="flex";}
+
 function renderDayTasksList(dateKey){dayTasksList.innerHTML="";const list=tasksByDate[dateKey]||[];if(list.length===0){const empty=document.createElement("div");empty.style.opacity="0.7";empty.textContent="Aucun devoir ou rappel pour ce jour.";dayTasksList.appendChild(empty);return;} list.forEach(task=>{const item=document.createElement("div");item.className="task-item"+(task.isReminder?" rappel":"");item.textContent=task.subject?`${task.subject} — ${task.title}`:task.title;item.addEventListener("click",()=>openTaskEditor(task));dayTasksList.appendChild(item);});}
 
 function openTaskEditor(task=null){
@@ -231,7 +231,8 @@ taskForm.addEventListener("submit",async e=>{
       const original=allTasks.find(t=>t.id===editingTaskId);if(!original) throw new Error("Tâche introuvable.");
       const changes={subject,title,date:dateStr,time:timeStr};
       if(!wantsReminder&&original.isReminder){changes.isReminder=false;changes.reminderDate=null;changes.reminderTime=null;}
-      else if(wantsReminder&&!original.isReminder){changes.isReminder=true;changes.reminderDate=reminderDate;changes.reminderTime=reminderTime;}
+      else if(====== Initial render =====================
+renderCalendar();wantsReminder&&!original.isReminder){changes.isReminder=true;changes.reminderDate=reminderDate;changes.reminderTime=reminderTime;}
       await updateTaskInFirestore(editingTaskId,changes);
       if(wantsReminder&&!original.isReminder){await scheduleFCMReminderFC({title:`Rappel: ${title}`,body:subject?`Matière: ${subject}`:"",sendAtISO:`${reminderDate}T${reminderTime}`});}
     }else{
@@ -348,5 +349,4 @@ loginSubmit.addEventListener("click",async ()=>{
 });
 loginGoogle.addEventListener("click",()=>{const provider=new GoogleAuthProvider();signInWithPopup(auth,provider).catch(err=>alert(err.message||String(err)));});
 
-// ===================== Initial render =====================
-renderCalendar();
+// ===============
