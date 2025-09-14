@@ -193,13 +193,7 @@ async function getReminderCountForDay(reminderDate){
   const snap=await getDocs(q);return Math.max(local,snap.size);
 }
 
-// ===================== Task UI =====================
-function openTaskEditor(task=null){
-  modalBg.style.display="flex";editingTaskId=task?task.id:null;modalTitle.textContent=task?"Modifier le devoir":"Ajouter un devoir";
-  const baseDate=task?task.date:(!selectedDate?todayKey():toDateKey(selectedDate));
-  inputMatiere.value=task?.subject||"";inputTitre.value=task?.title||"";inputDate.value=task?.date||baseDate;inputHeure.value=task?.time||userSettings.defaultHour||"18:00";inputRappel.checked=true;
-  btnDelete.style.display=task?"inline-block":"none";
-}
+
 
 // ===================== Formulaire =====================
 taskForm.addEventListener("submit", async e => {
