@@ -276,6 +276,64 @@ elCalendar.addEventListener("drop",async e=>{
   await updateTaskInFirestore(id,{date:newDate});
   await loadTasksFromFirestore();
 });
+// ===================== DayTasks + Ajouter/Modifier devoir =====================
+
+// Ouvre la vue des devoirs pour un jour
+function openDayTasks(dateObj) {
+  selectedDate = dateObj;
+  dayTasksTitle.textContent = `Devoirs du ${dateObj.toLocaleDateString("fr-FR")}`;
+  renderDayTasksList(toDateKey(dateObj));
+  dayTasksBg.style.display = "flex";
+}
+
+// Rend la liste des devoirs pour un jour
+function renderDayTasksList(dateKey) {
+  dayTasksList.innerHTML = "";
+  const list = tasksByDate[dateKey] || [];
+  if (list.length === 0) {
+    const empty = document.createElement("div");
+    empty.style.opacity = "0.7";
+    empty.textContent = "Aucun devoir ou rappel pour ce jour.";
+    dayTasksList.appendChild(empty);
+    return;
+  }
+  list.forEach((task) => {
+    const item = document.createElement("div");
+    item.className = "task-item" + (task.isReminder ? " rappel" : "");
+    item.textContent = task.subject ? `${task.subject} — ${task.title}` : task.title;
+
+    // Cliquer sur un devoir ouvre le modal d'édition
+    item.addEventListener("click", () => openTaskEditor(task));
+    dayTasksList.appendChild(item);
+  });
+}
+
+// Ouvre modal ajouter / éditer devoir
+function openTaskEditor(task = null) {
+  // Masquer le modal jour si ouvert
+  dayTasksBg.style.display = "none";
+
+  modalBg.style.display = "flex";
+  editingTaskId = task ? task.id : null;
+  modalTitle.textContent = task ? "Modifier le devoir" : "Ajouter un devoir";
+
+  // Définir date par défaut = date de la case cliquée
+  const baseDate = task?.date || toDateKey(selectedDate || new Date());
+
+  inputMatiere.value = task?.subject || "";
+  inputTitre.value = task?.title || "";
+  inputDate.value = baseDate;
+  inputHeure.value = task?.time || userSettings.defaultHour || "18:00";
+  inputRappel.checked = task?.isReminder !== undefined ? task.isReminder : true; // case cochée par défaut
+}
+
+// Boutons jour
+dayTasksAddBtn.addEventListener("click", () => {
+  openTaskEditor(null); // ouvre modal ajouter
+});
+dayTasksCloseBtn.addEventListener("click", () => {
+  dayTasksBg.style.display = "none"; // ferme modal jour
+});
 
 // ===================== DayTasks Close =====================
 dayTasksCloseBtn.addEventListener("click",()=>{dayTasksBg.style.display="none";});
