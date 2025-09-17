@@ -195,6 +195,7 @@ async function getReminderCountForDay(reminderDate){
 
 
 
+
 // ===================== Formulaire =====================
 taskForm.addEventListener("submit", async e => {
   e.preventDefault();
@@ -204,96 +205,88 @@ taskForm.addEventListener("submit", async e => {
   }
   try {
     const subject = inputMatiere.value.trim();
-    const title = inputTitre.value.trim();
+    const title   = inputTitre.value.trim();
     const dateStr = inputDate.value;
     const timeStr = inputHeure.value || "18:00";
     const wantsReminder = inputRappel.checked;
+
     if (!subject || !title || !dateStr) throw new Error("Tous les champs sont requis.");
 
     const now = new Date();
-    if (new Date(dateStr).getTime() < new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime())
+    const todayKey = toDateKey(new Date());
+    if (new Date(dateStr).getTime() < new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) {
       throw new Error("Impossible d'ajouter un devoir avant aujourd'hui.");
+    }
 
-    let reminderDate = dateStr;
-    let reminderTime = timeStr;
+    // ------------------- Calcul du rappel si demandé -------------------
+    let reminderDate = null;
     if (wantsReminder) {
       const d = new Date(dateStr);
       d.setDate(d.getDate() - userSettings.defaultReminderDays);
-      reminderDate = toDateKey(d);
-      reminderTime = userSettings.defaultHour || timeStr;
 
-      const clamped = clampReminderToFuture(reminderDate, reminderTime);
-      reminderDate = clamped.date;
-      reminderTime = clamped.time;
+      let rDate = toDateKey(d);
+      let rTime = userSettings.defaultHour || timeStr;
 
-      if (await getReminderCountForDay(reminderDate) >= 10)
-        throw new Error("Limite de 10 rappels par jour atteinte.");
+      // empêcher rappel avant aujourd'hui
+      if (rDate < todayKey) rDate = todayKey;
+
+      // ajuster futur valide
+      const clamped = clampReminderToFuture(rDate, rTime);
+      reminderDate = `${clamped.date}T${clamped.time}`;
     }
 
-    const payload = { subject, title, date: dateStr, time: timeStr, isReminder: !!wantsReminder };
-    if (wantsReminder) {
-      payload.reminderDate = reminderDate;
-      payload.reminderTime = reminderTime;
+    // ------------------- Un seul document Firestore -------------------
+    const taskPayload = {
+      subject,
+      title,
+      date: dateStr,
+      time: timeStr,
+      done: false,
+      reminderDate // null si pas de rappel
+    };
+    const newTaskId = await saveTaskToFirestore(taskPayload);
+
+    // Si rappel ➝ planifier notif
+    if (reminderDate) {
+      await scheduleFCMReminderFC({
+        title: `Rappel: ${title}`,
+        body: subject ? `Matière: ${subject}` : "",
+        sendAtISO: reminderDate
+      });
     }
 
-    if (editingTaskId) {
-      const original = allTasks.find(t => t.id === editingTaskId);
-      if (!original) throw new Error("Tâche introuvable.");
-      const changes = { subject, title, date: dateStr, time: timeStr };
-
-      if (!wantsReminder && original.isReminder) {
-        changes.isReminder = false;
-        changes.reminderDate = null;
-        changes.reminderTime = null;
-      }
-      else if (wantsReminder && !original.isReminder) {
-        // ====== Initial render =====================
-        renderCalendar();
-        changes.isReminder = true;
-        changes.reminderDate = reminderDate;
-        changes.reminderTime = reminderTime;
-      }
-
-      await updateTaskInFirestore(editingTaskId, changes);
-      if (wantsReminder && !original.isReminder) {
-        await scheduleFCMReminderFC({
-          title: `Rappel: ${title}`,
-          body: subject ? `Matière: ${subject}` : "",
-          sendAtISO: `${reminderDate}T${reminderTime}`
-        });
-      }
-    } else {
-      const newId = await saveTaskToFirestore(payload);
-      if (wantsReminder) {
-        await scheduleFCMReminderFC({
-          title: `Rappel: ${title}`,
-          body: subject ? `Matière: ${subject}` : "",
-          sendAtISO: `${reminderDate}T${reminderTime}`
-        });
-      }
-    }
-
+    // ------------------- Fermer modal et rafraîchir -------------------
     modalBg.style.display = "none";
     editingTaskId = null;
     await loadTasksFromFirestore();
     if (selectedDate) renderDayTasksList(toDateKey(selectedDate));
+
   } catch (err) {
     alert(err.message || String(err));
   }
 });
+async function toggleTaskDone(taskId, done) {
+  const taskRef = doc(db, "tasks", taskId);
+  await updateDoc(taskRef, { done });
 
-btnCancel.addEventListener("click", () => {
-  modalBg.style.display = "none";
-  editingTaskId = null;
-});
+  if (done) {
+    // terminé ➝ annule le rappel
+    await updateDoc(taskRef, { reminderDate: null });
+    cancelNotification(taskId);
+  } else {
+    // réactivé ➝ recrée le rappel
+    const snap = await getDoc(taskRef);
+    const task = snap.data();
+    const reminderDays = await getUserReminderDays();
 
-btnDelete.addEventListener("click", async () => {
-  if (!editingTaskId) return;
-  await deleteTaskFromFirestore(editingTaskId);
-  modalBg.style.display = "none";
-  editingTaskId = null;
-  await loadTasksFromFirestore();
-});
+    const reminderDate = new Date(task.date);
+    reminderDate.setDate(reminderDate.getDate() - reminderDays);
+
+    await updateDoc(taskRef, { reminderDate: reminderDate.toISOString() });
+    scheduleNotification(taskId, task.title, reminderDate);
+  }
+}
+
 
 // ===================== Paramètres =====================
 async function loadUserSettings(){
