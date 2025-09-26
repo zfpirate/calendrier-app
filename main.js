@@ -328,7 +328,7 @@ async function loadTasks(year, month) {
       }
       if (!controlKey) return;
 
-      // create control display
+      /* ================== CREATE TASK (Devoir) ================== */
       const controlContainer = document.querySelector(`.date[data-date="${controlKey}"] .tasks`);
       if (controlContainer) {
         const taskDiv = document.createElement("div");
@@ -347,17 +347,86 @@ async function loadTasks(year, month) {
           closePanelsAndOpenModal(controlKey, docSnap.id, data);
         });
 
+        // ---------- Desktop drag (devoir) ----------
+        if (!("ontouchstart" in window)) {
+          taskDiv.setAttribute("draggable", "true");
+          taskDiv.addEventListener("dragstart", (ev) => {
+            draggedRappel = taskDiv;
+            taskDiv.classList.add("dragging");
+          });
+          taskDiv.addEventListener("dragend", async (ev) => {
+            if (!draggedRappel) return;
+            const target = document.elementFromPoint(ev.clientX, ev.clientY);
+            await handleDropOnTarget(target, draggedRappel);
+            taskDiv.classList.remove("dragging");
+            draggedRappel = null;
+          });
+        }
+
+        // ---------- Mobile drag (devoir) ----------
+        if ("ontouchstart" in window) {
+          let longPressTimer = null;
+          let dragClone = null;
+
+          function cancelLongPress() {
+            if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+          }
+
+          taskDiv.addEventListener("touchstart", (ev) => {
+            cancelLongPress();
+            longPressTimer = setTimeout(() => {
+              draggedRappel = taskDiv;
+              dragClone = taskDiv.cloneNode(true);
+              dragClone.style.position = "absolute";
+              dragClone.style.zIndex = 2000;
+              dragClone.style.opacity = "0.9";
+              dragClone.style.pointerEvents = "none";
+              dragClone.style.width = `${taskDiv.offsetWidth}px`;
+              document.body.appendChild(dragClone);
+
+              const rect = taskDiv.getBoundingClientRect();
+              offsetX = ev.touches[0].clientX - rect.left;
+              offsetY = ev.touches[0].clientY - rect.top;
+              moveElementAt(dragClone, ev.touches[0].pageX, ev.touches[0].pageY, offsetX, offsetY);
+            }, 350);
+          });
+
+          taskDiv.addEventListener("touchmove", (ev) => {
+            if (dragClone) {
+              moveElementAt(dragClone, ev.touches[0].pageX, ev.touches[0].pageY, offsetX, offsetY);
+            } else cancelLongPress();
+          });
+
+          taskDiv.addEventListener("touchend", async (ev) => {
+            cancelLongPress();
+            if (dragClone && draggedRappel) {
+              const t = ev.changedTouches[0];
+              const target = document.elementFromPoint(t.clientX, t.clientY);
+              await handleDropOnTarget(target, draggedRappel);
+              try { dragClone.remove(); } catch {}
+              dragClone = null;
+              draggedRappel = null;
+            }
+          });
+
+          taskDiv.addEventListener("touchcancel", () => {
+            cancelLongPress();
+            if (dragClone) try { dragClone.remove(); } catch {}
+            dragClone = null;
+            draggedRappel = null;
+          });
+        }
+
         controlContainer.appendChild(taskDiv);
       }
 
-      // create rappel element placed on rappelDate or fallback to controlKey
+      /* ================== CREATE RAPPEL ================== */
       const rappelKey = data.rappelDate || controlKey;
       const rappelContainer = document.querySelector(`.date[data-date="${rappelKey}"] .tasks`);
       if (!rappelContainer) return;
 
       const rappelDiv = document.createElement("div");
       rappelDiv.className = "rappel";
-      // theme styling
       rappelDiv.style.backgroundColor = "#1E1E1E";
       rappelDiv.style.borderLeft = "5px solid #FF6E00";
       rappelDiv.style.color = "#FF6E00";
@@ -368,15 +437,9 @@ async function loadTasks(year, month) {
 
       const heureLabel = data.heure ? ` (${data.heure})` : "";
       rappelDiv.textContent = `🔔 ${data.matiere} - ${data.titre}${heureLabel}`;
-
       rappelDiv.dataset.id = docSnap.id;
-      rappelDiv.dataset.controlDate = controlKey;
-      rappelDiv.dataset.rappelDate = rappelKey;
 
-      // prevent parent click
-      rappelDiv.addEventListener("click", (e) => e.stopPropagation());
-
-      // dblclick -> edit but preserve the rappel date (we don't want to overwrite it)
+      // dblclick -> edit rappel
       rappelDiv.addEventListener("dblclick", (e) => {
         e.stopPropagation();
         editingTaskId = docSnap.id;
@@ -384,7 +447,7 @@ async function loadTasks(year, month) {
         closePanelsAndOpenModal(controlKey, docSnap.id, data);
       });
 
-      // ---------- Desktop drag (mouse) ----------
+      // Desktop drag rappel
       if (!("ontouchstart" in window)) {
         rappelDiv.setAttribute("draggable", "true");
         rappelDiv.addEventListener("dragstart", (ev) => {
@@ -400,25 +463,19 @@ async function loadTasks(year, month) {
         });
       }
 
-      // ---------- Mobile drag (long-press + clone) ----------
+      // Mobile drag rappel
       if ("ontouchstart" in window) {
         let longPressTimer = null;
         let dragClone = null;
-        let startedDrag = false;
 
         function cancelLongPress() {
           if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
         }
 
         rappelDiv.addEventListener("touchstart", (ev) => {
-          // start long press timer
           cancelLongPress();
-          startedDrag = false;
           longPressTimer = setTimeout(() => {
-            startedDrag = true;
             draggedRappel = rappelDiv;
-
-            // create a visual clone to move (so we don't detach the original)
             dragClone = rappelDiv.cloneNode(true);
             dragClone.style.position = "absolute";
             dragClone.style.zIndex = 2000;
@@ -431,16 +488,13 @@ async function loadTasks(year, month) {
             offsetX = ev.touches[0].clientX - rect.left;
             offsetY = ev.touches[0].clientY - rect.top;
             moveElementAt(dragClone, ev.touches[0].pageX, ev.touches[0].pageY, offsetX, offsetY);
-          }, 350); // threshold long press
+          }, 350);
         });
 
         rappelDiv.addEventListener("touchmove", (ev) => {
           if (dragClone) {
             moveElementAt(dragClone, ev.touches[0].pageX, ev.touches[0].pageY, offsetX, offsetY);
-          } else {
-            // If finger moves before long-press threshold, cancel (prevents accidental)
-            cancelLongPress();
-          }
+          } else cancelLongPress();
         });
 
         rappelDiv.addEventListener("touchend", async (ev) => {
@@ -455,7 +509,6 @@ async function loadTasks(year, month) {
           }
         });
 
-        // touchcancel
         rappelDiv.addEventListener("touchcancel", () => {
           cancelLongPress();
           if (dragClone) try { dragClone.remove(); } catch {}
@@ -471,13 +524,13 @@ async function loadTasks(year, month) {
   }
 }
 
-/* helper to move element for mobile clone */
+/* helper for mobile drag clone */
 function moveElementAt(elem, pageX, pageY, offX, offY) {
   elem.style.left = (pageX - offX) + "px";
   elem.style.top = (pageY - offY) + "px";
 }
 
-/* ================== Drop handler (desktop + mobile clone) ================== */
+/* ================== Drop handler ================== */
 async function handleDropOnTarget(targetElem, draggedElem) {
   try { draggedElem.style.display = ""; } catch {}
   const taskId = draggedElem.dataset.id;
@@ -505,27 +558,45 @@ async function handleDropOnTarget(targetElem, draggedElem) {
   }
 
   const newDateStr = dateCell.dataset.date;
+
   try {
     const taskSnap = await getDoc(docRef);
     const taskData = taskSnap.exists() ? taskSnap.data() : null;
-    const controlDate = taskData ? new Date(taskData.year, taskData.month, taskData.day) : null;
+    if (!taskData) return;
+
+    const isRappel = draggedElem.classList.contains("rappel");
+    const controlDate = taskData.date ? parseDate(taskData.date) : null;
     const newDate = parseDate(newDateStr);
 
-    if (newDate < today || (controlDate && newDate > controlDate)) {
-      alert("Tu peux pas mettre un rappel avant aujourd’hui ou après la date du contrôle. Remise à l'origine.");
-      await renderCalendar(currentYear, currentMonth);
-      return;
+    if (isRappel) {
+      // règles pour rappel
+      if (newDate < today || (controlDate && newDate > controlDate)) {
+        alert("Impossible : rappel avant aujourd’hui ou après le contrôle.");
+        await renderCalendar(currentYear, currentMonth);
+        return;
+      }
+      if (taskData.rappelDate !== newDateStr) {
+        await updateDoc(docRef, { rappelDate: newDateStr });
+      }
+    } else {
+      // c'est un devoir -> on déplace la date du devoir
+      const [y, m, d] = newDateStr.split("-").map(Number);
+      await updateDoc(docRef, {
+        year: y,
+        month: m - 1,
+        day: d,
+        date: newDateStr
+      });
     }
 
-    if (taskData && taskData.rappelDate !== newDateStr) {
-      await updateDoc(docRef, { rappelDate: newDateStr });
-    }
     await renderCalendar(currentYear, currentMonth);
   } catch (err) {
     console.error("handleDropOnTarget erreur:", err);
   }
 }
 
+
+   
 /* ================== Panels helpers (close others) ================== */
 function closeAllPanels() {
   try { modalBg.style.display = "none"; } catch {}
