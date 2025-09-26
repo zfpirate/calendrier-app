@@ -530,7 +530,7 @@ function moveElementAt(elem, pageX, pageY, offX, offY) {
   elem.style.top = (pageY - offY) + "px";
 }
 
-/* ================== Drop handler ================== */
+/* ================== Drop handler (desktop + mobile clone) ================== */
 async function handleDropOnTarget(targetElem, draggedElem) {
   try { draggedElem.style.display = ""; } catch {}
   const taskId = draggedElem.dataset.id;
@@ -558,35 +558,37 @@ async function handleDropOnTarget(targetElem, draggedElem) {
   }
 
   const newDateStr = dateCell.dataset.date;
-
   try {
     const taskSnap = await getDoc(docRef);
-    const taskData = taskSnap.exists() ? taskSnap.data() : null;
-    if (!taskData) return;
+    if (!taskSnap.exists()) return;
+    const taskData = taskSnap.data();
 
-    const isRappel = draggedElem.classList.contains("rappel");
-    const controlDate = taskData.date ? parseDate(taskData.date) : null;
+    const controlDate = new Date(taskData.year, taskData.month, taskData.day);
     const newDate = parseDate(newDateStr);
 
-    if (isRappel) {
-      // règles pour rappel
-      if (newDate < today || (controlDate && newDate > controlDate)) {
-        alert("Impossible : rappel avant aujourd’hui ou après le contrôle.");
-        await renderCalendar(currentYear, currentMonth);
-        return;
-      }
+    // règle commune : pas avant aujourd’hui et pas après la date du contrôle
+    if (newDate < today || newDate > controlDate) {
+      alert("Tu peux pas mettre ça avant aujourd’hui ou après la date du contrôle. Remis à l'origine.");
+      await renderCalendar(currentYear, currentMonth);
+      return;
+    }
+
+    if (draggedElem.classList.contains("rappel")) {
+      // update rappelDate
       if (taskData.rappelDate !== newDateStr) {
         await updateDoc(docRef, { rappelDate: newDateStr });
       }
-    } else {
-      // c'est un devoir -> on déplace la date du devoir
-      const [y, m, d] = newDateStr.split("-").map(Number);
-      await updateDoc(docRef, {
-        year: y,
-        month: m - 1,
-        day: d,
-        date: newDateStr
-      });
+    } else if (draggedElem.classList.contains("task")) {
+      // update date du devoir
+      if (taskData.date !== newDateStr) {
+        const d = newDate;
+        await updateDoc(docRef, {
+          date: newDateStr,
+          year: d.getFullYear(),
+          month: d.getMonth(),
+          day: d.getDate()
+        });
+      }
     }
 
     await renderCalendar(currentYear, currentMonth);
@@ -595,8 +597,6 @@ async function handleDropOnTarget(targetElem, draggedElem) {
   }
 }
 
-
-   
 /* ================== Panels helpers (close others) ================== */
 function closeAllPanels() {
   try { modalBg.style.display = "none"; } catch {}
