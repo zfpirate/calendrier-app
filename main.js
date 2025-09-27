@@ -771,18 +771,53 @@ async function refreshDayTasksList(dateStr) {
 }
 
 /* ================== Navigation & settings ================== */
+// === Navigation par flèches (PC) ===
 prevMonthBtn?.addEventListener("click", () => {
   let m = currentMonth - 1;
   let y = currentYear;
   if (m < 0) { m = 11; y -= 1; }
   renderCalendar(y, m);
 });
+
 nextMonthBtn?.addEventListener("click", () => {
   let m = currentMonth + 1;
   let y = currentYear;
   if (m > 11) { m = 0; y += 1; }
   renderCalendar(y, m);
 });
+
+// === Navigation par swipe (mobile) ===
+let touchStartX = 0;
+let touchEndX = 0;
+
+document.addEventListener("touchstart", (e) => {
+  touchStartX = e.changedTouches[0].screenX;
+}, false);
+
+document.addEventListener("touchend", (e) => {
+  touchEndX = e.changedTouches[0].screenX;
+  handleSwipe();
+}, false);
+
+function handleSwipe() {
+  const swipeDistance = touchEndX - touchStartX;
+  const minSwipe = 50; // px minimum
+
+  if (swipeDistance > minSwipe) {
+    // Swipe droite → mois précédent
+    let m = currentMonth - 1;
+    let y = currentYear;
+    if (m < 0) { m = 11; y -= 1; }
+    renderCalendar(y, m);
+  } else if (swipeDistance < -minSwipe) {
+    // Swipe gauche → mois suivant
+    let m = currentMonth + 1;
+    let y = currentYear;
+    if (m > 11) { m = 0; y += 1; }
+    renderCalendar(y, m);
+  }
+}
+
 settingsBtn.addEventListener("click", () => { openParams(); });
 
 /* ================== Params modal (settings) ================== */
