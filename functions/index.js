@@ -1,57 +1,46 @@
-// ------------------------------
-// index.js - Firebase Functions
-// ------------------------------
-
-const { setGlobalOptions } = require("firebase-functions/v2/options");
-const { onRequest } = require("firebase-functions/v2/https");
+const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-const logger = require("firebase-functions/logger");
+admin.initializeApp();
 
-// ⚡ Init Firebase Admin avec ton JSON
-const serviceAccount = require("./fcm-service-account.json");
+// Cette fonction tourne toutes les 5 minutes
+exports.sendRemindersAtExactTime = functions.pubsub.schedule('every 5 minutes').onRun(async (context) => {
+  const db = admin.firestore();
+  const now = Date.now(); // timestamp actuel en ms
+  const windowStart = now - 2*60*1000; // 2 minutes avant
+  const windowEnd = now + 3*60*1000;   // 3 minutes après pour tolérance
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+  const tasksSnap = await db.collection("devoirs")
+    .where("rappel", "==", true)
+    .where("timestampRappel", ">=", windowStart)
+    .where("timestampRappel", "<=", windowEnd)
+    .get();
 
-// Limiter le nombre d’instances
-setGlobalOptions({ maxInstances: 10 });
+  const messages = [];
 
-// ------------------------------
-// Fonction test HTTP pour envoyer une notif
-// ------------------------------
-exports.sendTestNotification = onRequest(async (req, res) => {
-  const message = {
-    notification: {
-      title: "Test Notification",
-      body: "Salut bro, ça marche même si l'app est fermée !"
-    },
-    topic: "allUsers" // tous ceux abonnés au topic
-  };
+  tasksSnap.forEach(taskDoc => {
+    const task = taskDoc.data();
+    if (!task.ownerUid) return;
 
-  try {
-    const response = await admin.messaging().send(message);
-    logger.info("Notification envoyée !", response);
-    res.send("Notification envoyée !");
-  } catch (error) {
-    logger.error("Erreur notif :", error);
-    res.status(500).send("Erreur lors de l'envoi de la notification");
-  }
-});
+    const userRef = db.collection("users").doc(task.ownerUid);
+    messages.push(userRef.get().then(userSnap => {
+      if (!userSnap.exists) return null;
+      const fcmToken = userSnap.data()?.fcmToken;
+      if (!fcmToken) return null;
 
-// ------------------------------
-// Fonction pour abonner un token au topic allUsers
-// ------------------------------
-exports.subscribeToTopic = onRequest(async (req, res) => {
-  try {
-    const { token } = req.body;
-    if (!token) return res.status(400).send("Token manquant");
+      return admin.messaging().send({
+        token: fcmToken,
+        notification: {
+          title: `Rappel devoir: ${task.matiere}`,
+          body: `${task.titre} pour le ${task.date} à ${task.heure || "??:??"}`
+        },
+        data: {
+          taskId: taskDoc.id,
+          date: task.date
+        }
+      });
+    }));
+  });
 
-    await admin.messaging().subscribeToTopic(token, "allUsers");
-    logger.info(`Token ${token} abonné au topic allUsers`);
-    res.send("Token abonné au topic !");
-  } catch (error) {
-    logger.error("Erreur subscription :", error);
-    res.status(500).send("Erreur lors de l'abonnement au topic");
-  }
+  await Promise.all(messages);
+  console.log(`✅ Notifications envoyées pour ${messages.length} rappels`);
 });

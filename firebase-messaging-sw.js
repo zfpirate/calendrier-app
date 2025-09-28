@@ -42,11 +42,6 @@ self.addEventListener("install", (event) => {
   );
 });
 
-// Activation
-self.addEventListener("activate", (event) => {
-  console.log("[SW] Activé");
-});
-
 // Interception des requêtes
 self.addEventListener("fetch", (event) => {
   event.respondWith(
