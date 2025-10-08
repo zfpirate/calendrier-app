@@ -1,8 +1,9 @@
-// ===================== firebase-messaging-sw.js =====================
-importScripts('https://www.gstatic.com/firebasejs/11.0.2/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging-compat.js');
+// firebase-messaging-sw.js
 
-// Config Firebase
+importScripts('https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js');
+importScripts('https://www.gstatic.com/firebasejs/11.0.2/firebase-messaging.js');
+
+// Initialise Firebase dans le service worker
 firebase.initializeApp({
   apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
   authDomain: "app-calendrier-d1a1d.firebaseapp.com",
@@ -13,47 +14,31 @@ firebase.initializeApp({
   measurementId: "G-VD7TTVLCY5"
 });
 
+// Récupère l’instance Messaging
 const messaging = firebase.messaging();
-// Dans firebase-messaging-sw.js
-self.addEventListener('install', event => {
-  self.skipWaiting();
-});
-self.addEventListener('activate', event => {
-  clients.claim();
-});
 
-// --- Mise en cache des fichiers essentiels ---
-const CACHE_NAME = "calendrier-cache-v1";
-const CACHE_FILES = [
-  "/calendrier-app/index.html",
-  "/calendrier-app/style.css",
-  "/calendrier-app/main.js",
-  "/calendrier-app/client.js",
-  "/calendrier-app/image/icone-app-192.jpg",
-  "/calendrier-app/image/icone-app-512.jpg"
-];
-
-self.addEventListener("install", (event) => {
-  console.log("[SW] Installation et cache des fichiers...");
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(CACHE_FILES))
-      .catch((err) => console.warn("[SW] Erreur cache addAll:", err))
-  );
-});
-
-// Interception des requêtes
-self.addEventListener("fetch", (event) => {
-  event.respondWith(
-    caches.match(event.request).then((resp) => resp || fetch(event.request))
-  );
-});
-
-// Notifications en background
+// Notification reçue en background
 messaging.onBackgroundMessage((payload) => {
-  console.log("[firebase-messaging-sw.js] Notification background:", payload);
-  self.registration.showNotification(payload.notification.title, {
-    body: payload.notification.body,
-    icon: "/calendrier-app/image/icone-notif.jpg"
-  });
+  console.log('[FCM] Notification background reçue:', payload);
+  const notificationTitle = payload.notification?.title || 'Rappel devoir';
+  const notificationOptions = {
+    body: payload.notification?.body || '',
+    icon: './images/icone-notif.jpg'
+  };
+
+  self.registration.showNotification(notificationTitle, notificationOptions);
+});
+
+// Pour gérer le clic sur la notification
+self.addEventListener('notificationclick', function(event) {
+  event.notification.close();
+  // Ouvre ton site ou une page spécifique
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      if (clientList.length > 0) {
+        return clientList[0].focus();
+      }
+      return clients.openWindow('/');
+    })
+  );
 });

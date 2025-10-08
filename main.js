@@ -789,6 +789,7 @@ nextMonthBtn?.addEventListener("click", () => {
 // === Navigation par swipe (mobile) ===
 let touchStartX = 0;
 let touchEndX = 0;
+let canSwipe = true;
 
 document.addEventListener("touchstart", (e) => {
   touchStartX = e.changedTouches[0].screenX;
@@ -801,7 +802,9 @@ document.addEventListener("touchend", (e) => {
 
 function handleSwipe() {
   const swipeDistance = touchEndX - touchStartX;
-  const minSwipe = 50; // px minimum
+  const minSwipe = window.innerWidth / 4; // 1/4 de l'écran
+
+  if (!canSwipe) return;
 
   if (swipeDistance > minSwipe) {
     // Swipe droite → mois précédent
@@ -809,14 +812,26 @@ function handleSwipe() {
     let y = currentYear;
     if (m < 0) { m = 11; y -= 1; }
     renderCalendar(y, m);
+    lockSwipe();
   } else if (swipeDistance < -minSwipe) {
     // Swipe gauche → mois suivant
     let m = currentMonth + 1;
     let y = currentYear;
     if (m > 11) { m = 0; y += 1; }
     renderCalendar(y, m);
+    lockSwipe();
   }
 }
+
+// Bloque plusieurs swipes trop rapprochés
+function lockSwipe() {
+  canSwipe = false;
+  setTimeout(() => {
+    canSwipe = true;
+  }, 500); // délai 0.5s avant de pouvoir reswiper
+}
+
+
 
 settingsBtn.addEventListener("click", () => { openParams(); });
 

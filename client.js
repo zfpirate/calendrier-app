@@ -27,17 +27,18 @@ async function initFCM() {
     if (auth.currentUser) {
       await setDoc(doc(db, "fcmTokens", auth.currentUser.uid), { token, updatedAt: new Date() });
       console.log("💾 Token FCM enregistré en base.");
+
       // subscription topic
-      fetch("https://us-central1-TON-PROJECT.cloudfunctions.net/subscribeToTopic", {
+      fetch("https://us-central1-app-calendrier-d1a1d.cloudfunctions.net/subscribeToTopic", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token })
+        body: JSON.stringify({ token, topic: "global" }) // topic à choisir
       })
       .then(() => console.log("✅ Token abonné au topic"))
       .catch(err => console.error("❌ Erreur subscription topic:", err));
     }
 
-    // Foreground notifications
+    // Foreground notifications (hors du if pour que ça marche toujours)
     onMessage(messaging, (payload) => {
       console.log("[FCM] Notification foreground:", payload);
       if (Notification.permission === "granted") {
@@ -57,4 +58,3 @@ async function initFCM() {
 onAuthStateChanged(auth, (user) => {
   if (user) initFCM();
 });
-
