@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "app-calendrier-d1a1d"
-  }
+    "default": "app-calendrier-d1a1d",
+    "dev": "app-calendrier-d1a1d"
+  },
+  "targets": {},
+  "etags": {}
 }
