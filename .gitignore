@@ -1,0 +1,28 @@
+# Python venvs
+.venv/
+.venv_old/
+
+# Playwright browsers cache (très lourd)
+playwright-browsers/
+
+# Node/Firebase
+functions/node_modules/
+public/import/
+
+# Caches/bytecode/logs
+__pycache__/
+*.py[cod]
+*.log
+
+# IDE
+.idea/
+.vscode/
+
+# Secrets
+bot/firebase-service-account.json
+session*.json
+app-calendrier-d1a1d-*.json
+
+# OS
+.DS_Store
+Thumbs.db

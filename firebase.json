@@ -1,0 +1,39 @@
+{
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "/service-worker.js",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache" },
+          { "key": "Content-Type", "value": "application/javascript" }
+        ]
+      },
+      {
+        "source": "/firebase-config.js",
+        "headers": [
+          { "key": "Content-Type", "value": "application/javascript" }
+        ]
+      }
+    ],
+    "rewrites": [
+      { "source": "/triggerBotRun", "function": "triggerBotRun" },
+      { "source": "/credentialCipher", "function": "credentialCipher" },
+      { "source": "**", "destination": "/index.html" }
+    ]
+  },
+  "functions": {
+    "source": "functions"
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
+}

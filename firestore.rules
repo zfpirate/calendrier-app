@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Collection devoirs - lecture et écriture pour tous les utilisateurs connectés
+    match /devoirs/{document} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Collection users - lecture pour tous, écriture pour soi-même ou les admins
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if request.auth != null && (request.auth.uid == userId || request.auth.token.admin == true);
+      
+      // Sous-collection externalHomeworks
+      match /externalHomeworks/{document} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Sous-collection blacklistedEvents
+      match /blacklistedEvents/{eventId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Sous-collection examSubjects (Mode Examen)
+      match /examSubjects/{document} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Sous-collection examSchedule (Mode Examen)
+      match /examSchedule/{document} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+    
+    // Collection botRuns - seulement pour les admins
+    match /botRuns/{document} {
+      allow read, write: if request.auth != null && request.auth.token.admin == true;
+    }
+  }
+}

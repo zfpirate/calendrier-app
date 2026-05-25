@@ -1,0 +1,1355 @@
+/* ================== Firebase imports ================== */
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+import {
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  getDocs,
+  doc,
+  deleteDoc,
+  updateDoc,
+  setDoc,
+  getDoc,
+  query,
+  where
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+/* ================== Firebase config ================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyDRftI6joKvqLYgJsvnr1e0iSwSZC3PSc8",
+  authDomain: "app-calendrier-d1a1d.firebaseapp.com",
+  projectId: "app-calendrier-d1a1d",
+  storageBucket: "app-calendrier-d1a1d.appspot.com",
+  messagingSenderId: "797885447360",
+  appId: "1:797885447360:web:ecceee1f6af18526978125",
+  measurementId: "G-VD7TTVLCY5"
+};
+
+/* ================== Init Firebase ================== */
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+/* ================== Credential helpers ================== */
+function encryptText(plain) {
+  return String(plain ?? "");
+}
+
+function decryptText(cipher) {
+  return String(cipher ?? "");
+}
+
+/* ================== DOM references ================== */
+const calendar = document.getElementById("calendar");
+const monthYear = document.getElementById("monthYear");
+const prevMonthBtn = document.getElementById("prev-month-btn");
+const nextMonthBtn = document.getElementById("next-month-btn");
+const settingsBtn = document.getElementById("settings-btn");
+const testNotifBtn = document.getElementById("test-notif-btn");
+
+const modalBg = document.getElementById("modal-bg");
+const modalTitle = document.getElementById("modal-title");
+const matiereInput = document.getElementById("matiere");
+const titreInput = document.getElementById("titre");
+const dateInput = document.getElementById("date");
+const heureInput = document.getElementById("heure");
+const rappelCheckbox = document.getElementById("rappel");
+const cancelBtn = document.getElementById("cancel-btn");
+const deleteBtn = document.getElementById("delete-btn");
+const taskForm = document.getElementById("taskForm");
+
+const paramsBg = document.getElementById("params-bg");
+const paramsForm = document.getElementById("paramsForm");
+const userIdInput = document.getElementById("userId");
+const userPassInput = document.getElementById("userPass");
+const defaultReminderInput = document.getElementById("defaultReminder");
+const defaultHourInput = document.getElementById("defaultHour");
+const paramsCancelBtn = document.getElementById("params-cancel-btn");
+
+const dayTasksBg = document.getElementById("dayTasks-bg");
+const dayTasksTitle = document.getElementById("dayTasks-title");
+const dayTasksList = document.getElementById("dayTasks-list");
+const dayTasksAddBtn = document.getElementById("dayTasks-add-btn");
+const dayTasksCloseBtn = document.getElementById("dayTasks-close-btn");
+
+const loginBg = document.getElementById("login-bg");
+const loginUserInput = document.getElementById("loginUser");
+const loginPassInput = document.getElementById("loginPass");
+const loginSubmitBtn = document.getElementById("loginSubmit");
+const loginGoogleBtn = document.getElementById("loginGoogle");
+
+const trashDiv = document.getElementById("trash");
+
+/* ================== Constants & state ================== */
+const MONTH_NAMES = [
+  "Janvier",
+  "Fevrier",
+  "Mars",
+  "Avril",
+  "Mai",
+  "Juin",
+  "Juillet",
+  "Aout",
+  "Septembre",
+  "Octobre",
+  "Novembre",
+  "Decembre"
+];
+
+const DAY_NAMES = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+const state = {
+  currentYear: null,
+  currentMonth: null,
+  selectedDate: null,
+  defaultReminder: 1,
+  defaultHour: "18:00",
+  currentUser: null,
+  currentUserDoc: null,
+  editingDocId: null,
+  editingGroupId: null,
+  editingGroupDocs: null,
+  preservedReminderOffset: null,
+  preservedReminderDate: null,
+  preservedReminderTime: null,
+  authReady: false
+};
+
+const dragContext = {
+  id: null,
+  groupId: null,
+  type: null
+};
+
+/* ================== Utils ================== */
+function ensureAuthed() {
+  if (!state.currentUser) {
+    if (!state.authReady) {
+      throw new Error("Auth state not ready");
+    }
+    if (loginBg) loginBg.style.display = "flex";
+    throw new Error("User not authenticated");
+  }
+}
+
+function formatDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDate(str) {
+  const [y, m, d] = (str || "").split("-").map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    return new Date(NaN);
+  }
+  return new Date(y, m - 1, d);
+}
+
+function startOfDay(date) {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function sanitizeHour(value) {
+  if (!value) return state.defaultHour || "18:00";
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return state.defaultHour || "18:00";
+  const hours = Math.min(23, Math.max(0, Number(match[1])));
+  const minutes = Math.min(59, Math.max(0, Number(match[2])));
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function getDateParts(dateStr) {
+  const d = parseDate(dateStr);
+  return {
+    year: d.getFullYear(),
+    month: d.getMonth(),
+    day: d.getDate()
+  };
+}
+
+function diffInDays(laterDateStr, earlierDateStr) {
+  const later = parseDate(laterDateStr);
+  const earlier = parseDate(earlierDateStr);
+  const ms = startOfDay(later).getTime() - startOfDay(earlier).getTime();
+  return Math.round(ms / (1000 * 60 * 60 * 24));
+}
+
+function computeTimestamp(dateStr, heure) {
+  const date = parseDate(dateStr);
+  const [hh, mm] = sanitizeHour(heure).split(":").map(Number);
+  date.setHours(hh, mm, 0, 0);
+  return date.getTime();
+}
+
+function isBeforeToday(dateStr) {
+  const date = startOfDay(parseDate(dateStr));
+  return date < startOfDay(new Date());
+}
+
+function generateGroupId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `grp_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+}
+
+function computeReminderDate(dueDateStr, offsetDays, clampToToday) {
+  let offset = Number(offsetDays);
+  if (!Number.isFinite(offset)) offset = Number(state.defaultReminder) || 0;
+  const dueDate = parseDate(dueDateStr);
+  const reminderDate = new Date(dueDate);
+  reminderDate.setDate(reminderDate.getDate() - offset);
+  if (clampToToday) {
+    const today = startOfDay(new Date());
+    if (reminderDate < today) {
+      reminderDate.setTime(today.getTime());
+    }
+  }
+  return formatDate(reminderDate);
+}
+
+function buildTaskLabel(task) {
+  const type = task.type || (task.rappel ? "rappel" : "devoir");
+  const parts = [];
+  if (task.matiere) parts.push(task.matiere);
+  if (task.titre && task.titre !== task.matiere) parts.push(task.titre);
+  if (task.heure) parts.push(`(${task.heure})`);
+  if (type === "rappel") parts.push("[Rappel]");
+  return parts.join(" ").trim() || (type === "rappel" ? "Rappel" : "Devoir");
+}
+
+function sortTasksForDisplay(tasks) {
+  return tasks.slice().sort((a, b) => {
+    const dateA = a.rappelDate || a.date || "";
+    const dateB = b.rappelDate || b.date || "";
+    if (dateA !== dateB) return dateA.localeCompare(dateB);
+    const timeA = a.heure || "";
+    const timeB = b.heure || "";
+    if (timeA !== timeB) return timeA.localeCompare(timeB);
+    const typeA = a.type || (a.rappel ? "rappel" : "devoir");
+    const typeB = b.type || (b.rappel ? "rappel" : "devoir");
+    return typeA.localeCompare(typeB);
+  });
+}
+
+function clearDragHighlights() {
+  document.querySelectorAll(".date.drop-target").forEach((cell) => {
+    cell.classList.remove("drop-target");
+  });
+}
+
+function resetDragContext() {
+  dragContext.id = null;
+  dragContext.groupId = null;
+  dragContext.type = null;
+  document.body.classList.remove("dragging-task");
+  trashDiv?.classList.remove("over");
+  clearDragHighlights();
+}
+
+/* ================== Firestore helpers ================== */
+async function loadGroupDocs(groupId) {
+  const result = { devoir: null, rappel: null };
+  if (!groupId || !state.currentUser) return result;
+  try {
+    const base = collection(db, "devoirs");
+    const snap = await getDocs(
+      query(base, where("ownerUid", "==", state.currentUser.uid), where("groupId", "==", groupId))
+    );
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      const entry = { id: docSnap.id, data };
+      const type = data.type || (data.rappel ? "rappel" : "devoir");
+      if (type === "rappel") {
+        result.rappel = entry;
+      } else {
+        result.devoir = entry;
+      }
+    });
+  } catch (err) {
+    console.warn("loadGroupDocs error:", err);
+  }
+  return result;
+}
+
+async function fetchTaskDoc(taskId) {
+  if (!taskId) return null;
+  try {
+    const ref = doc(db, "devoirs", taskId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return null;
+    return { id: snap.id, data: snap.data() };
+  } catch (err) {
+    console.warn("fetchTaskDoc error:", err);
+    return null;
+  }
+}
+
+async function deleteGroup(groupId) {
+  if (!groupId || !state.currentUser) return;
+  try {
+    const base = collection(db, "devoirs");
+    const snap = await getDocs(
+      query(base, where("ownerUid", "==", state.currentUser.uid), where("groupId", "==", groupId))
+    );
+    const deletions = [];
+    snap.forEach((docSnap) => {
+      deletions.push(deleteDoc(doc(db, "devoirs", docSnap.id)));
+    });
+    await Promise.all(deletions);
+  } catch (err) {
+    console.error("deleteGroup error:", err);
+  }
+}
+
+/* ================== Drag & drop handlers ================== */
+function handleTaskDragStart(event) {
+  const target = event.currentTarget;
+  dragContext.id = target?.dataset?.id || null;
+  dragContext.groupId = target?.dataset?.groupId || null;
+  dragContext.type = target?.dataset?.type || null;
+  if (!dragContext.id) return;
+  document.body.classList.add("dragging-task");
+  try {
+    if (event.dataTransfer) {
+      event.dataTransfer.setData("text/plain", dragContext.id);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.dropEffect = "move";
+    }
+  } catch (err) {
+    console.warn("dataTransfer setData failed:", err);
+  }
+}
+
+function handleTaskDragEnd() {
+  resetDragContext();
+}
+
+function handleCalendarDragOver(event) {
+  if (!dragContext.id) return;
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "move";
+  }
+  event.currentTarget.classList.add("drop-target");
+}
+
+function handleCalendarDragLeave(event) {
+  event.currentTarget.classList.remove("drop-target");
+}
+
+async function handleCalendarDrop(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  const targetDate = event.currentTarget.dataset.date;
+  const draggedId = dragContext.id || event.dataTransfer?.getData("text/plain");
+  const draggedGroupId = dragContext.groupId;
+  const draggedType = dragContext.type;
+  resetDragContext();
+  if (!draggedId || !targetDate) return;
+
+  const targetDateObj = startOfDay(parseDate(targetDate));
+  const today = startOfDay(new Date());
+  if (targetDateObj < today) {
+    alert("Impossible de placer une tache dans le passe.");
+    return;
+  }
+
+  try {
+    const baseDoc = await fetchTaskDoc(draggedId);
+    if (!baseDoc) {
+      console.warn("Task not found for drop:", draggedId);
+      return;
+    }
+    let groupId = baseDoc.data.groupId || draggedGroupId || null;
+    let groupDocs = groupId ? await loadGroupDocs(groupId) : { devoir: null, rappel: null };
+
+    const inferredType = baseDoc.data.type || (baseDoc.data.rappel ? "rappel" : "devoir");
+    if (!groupDocs.devoir && inferredType !== "rappel") {
+      groupDocs.devoir = baseDoc;
+    }
+    if (!groupDocs.rappel && inferredType === "rappel") {
+      groupDocs.rappel = baseDoc;
+    }
+
+    if (!groupId) {
+      groupId =
+        groupDocs.devoir?.data.groupId ||
+        groupDocs.rappel?.data.groupId ||
+        generateGroupId();
+    }
+
+    const targetParts = getDateParts(targetDate);
+
+    if ((draggedType || inferredType) === "rappel") {
+      const reminderEntry = groupDocs.rappel || baseDoc;
+      const dueEntry = groupDocs.devoir;
+      const reminderData = reminderEntry.data;
+      const dueData = dueEntry?.data || null;
+      const dueDateStr = dueData?.dueDate || dueData?.date || reminderData.dueDate || targetDate;
+      const dueDateObj = startOfDay(parseDate(dueDateStr));
+      if (targetDateObj > dueDateObj) {
+        alert("Un rappel ne peut pas etre apres le devoir. Modifie le devoir avant de deplacer le rappel.");
+        return;
+      }
+      const heure = reminderData.heure || dueData?.heure || state.defaultHour;
+      const payload = {
+        ...reminderData,
+        date: targetDate,
+        rappelDate: targetDate,
+        dueDate: dueData?.dueDate || dueData?.date || reminderData.dueDate || targetDate,
+        year: targetParts.year,
+        month: targetParts.month,
+        day: targetParts.day,
+        timestampRappel: computeTimestamp(targetDate, heure),
+        notified: false,
+        groupId,
+        type: "rappel",
+        rappel: true,
+        heure,
+        ownerUid: reminderData.ownerUid || dueData?.ownerUid || state.currentUser.uid
+      };
+      await updateDoc(doc(db, "devoirs", reminderEntry.id), payload);
+      if (dueEntry) {
+        await updateDoc(doc(db, "devoirs", dueEntry.id), {
+          rappelDate: targetDate,
+          hasRappel: true,
+          groupId
+        });
+      }
+    } else {
+      const dueEntry = groupDocs.devoir || baseDoc;
+      const reminderEntry = groupDocs.rappel;
+      const dueData = dueEntry.data;
+      const heure = dueData.heure || state.defaultHour;
+      const reminderData = reminderEntry?.data || null;
+      const reminderDateStr = reminderData?.rappelDate || reminderData?.date || null;
+      if (reminderDateStr) {
+        const reminderDateObj = startOfDay(parseDate(reminderDateStr));
+        if (reminderDateObj > targetDateObj) {
+          alert("Le rappel associe est apres la nouvelle date. Deplace d'abord le rappel.");
+          return;
+        }
+      }
+      const duePayload = {
+        ...dueData,
+        date: targetDate,
+        dueDate: targetDate,
+        year: targetParts.year,
+        month: targetParts.month,
+        day: targetParts.day,
+        groupId,
+        type: "devoir",
+        rappel: false,
+        notified: false,
+        hasRappel: Boolean(reminderEntry),
+        rappelDate: reminderDateStr || null
+      };
+      if (!reminderEntry) {
+        duePayload.hasRappel = false;
+        duePayload.rappelDate = null;
+      }
+
+      await updateDoc(doc(db, "devoirs", dueEntry.id), duePayload);
+      if (reminderEntry) {
+        await updateDoc(doc(db, "devoirs", reminderEntry.id), {
+          dueDate: targetDate,
+          groupId,
+          notified: false,
+          ownerUid: reminderData.ownerUid || state.currentUser.uid
+        });
+      }
+    }
+  } catch (err) {
+    console.error("Erreur lors du drop calendrier:", err);
+  }
+
+  await renderCalendar(state.currentYear, state.currentMonth);
+  if (state.selectedDate) {
+    await refreshDayTasksList(state.selectedDate);
+  }
+}
+
+async function handleTrashDrop(event) {
+  event.preventDefault();
+  const droppedId = dragContext.id || event.dataTransfer?.getData("text/plain");
+  const droppedGroupId = dragContext.groupId;
+  resetDragContext();
+  if (!droppedId) return;
+  try {
+    if (droppedGroupId) {
+      await deleteGroup(droppedGroupId);
+    } else {
+      await deleteDoc(doc(db, "devoirs", droppedId));
+    }
+  } catch (err) {
+    console.error("Erreur suppression via corbeille:", err);
+    alert("Impossible de supprimer le devoir.");
+  }
+  await renderCalendar(state.currentYear, state.currentMonth);
+  if (state.selectedDate) {
+    await refreshDayTasksList(state.selectedDate);
+  }
+}
+
+/* ================== Calendar render ================== */
+async function renderCalendar(year, month) {
+  try {
+    ensureAuthed();
+  } catch (err) {
+    calendar.innerHTML = "<div class='not-logged'>Connecte-toi pour voir le calendrier</div>";
+    if (monthYear) monthYear.textContent = "";
+    return;
+  }
+
+  state.currentYear = year;
+  state.currentMonth = month;
+  calendar.innerHTML = "";
+
+  if (monthYear) {
+    monthYear.textContent = `${MONTH_NAMES[month]} ${year}`;
+  }
+
+  DAY_NAMES.forEach((name) => {
+    const el = document.createElement("div");
+    el.className = "day-name";
+    el.textContent = name;
+    calendar.appendChild(el);
+  });
+
+  const firstDay = new Date(year, month, 1);
+  const startDay = (firstDay.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const tasksByDay = {};
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, "devoirs"),
+        where("ownerUid", "==", state.currentUser.uid),
+        where("year", "==", year),
+        where("month", "==", month)
+      )
+    );
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      const day = Number(data.day);
+      if (!Number.isFinite(day)) return;
+      if (!tasksByDay[day]) tasksByDay[day] = [];
+      tasksByDay[day].push({ id: docSnap.id, ...data });
+    });
+  } catch (err) {
+    console.error("Erreur chargement devoirs du mois:", err);
+  }
+
+  for (let i = 0; i < startDay; i++) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    calendar.appendChild(empty);
+  }
+
+  const today = startOfDay(new Date());
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const cell = document.createElement("div");
+    cell.className = "date";
+    const dateObj = new Date(year, month, day);
+    const dateStr = formatDate(dateObj);
+    cell.dataset.date = dateStr;
+
+    const header = document.createElement("div");
+    header.className = "date-header";
+
+    const numberEl = document.createElement("div");
+    numberEl.className = "num";
+    numberEl.textContent = String(day);
+    header.appendChild(numberEl);
+
+    if (startOfDay(dateObj).getTime() === today.getTime()) {
+      cell.classList.add("today");
+      const lbl = document.createElement("span");
+      lbl.className = "today-label";
+      lbl.textContent = "Aujourd'hui";
+      header.appendChild(lbl);
+    }
+
+    cell.appendChild(header);
+
+    const dayTasks = tasksByDay[day] ? sortTasksForDisplay(tasksByDay[day]) : [];
+    if (dayTasks.length) {
+      cell.classList.add("has-tasks");
+      const container = document.createElement("div");
+      container.className = "tasks";
+
+      dayTasks.slice(0, 3).forEach((task) => {
+        const entryType = task.type || (task.rappel ? "rappel" : "devoir");
+        const el = document.createElement("div");
+        el.className = "task";
+        if (entryType === "rappel") el.classList.add("rappel");
+        el.textContent = buildTaskLabel(task);
+        el.dataset.id = task.id;
+        el.dataset.groupId = task.groupId || task.id;
+        el.dataset.type = entryType;
+        el.draggable = true;
+        el.addEventListener("dragstart", handleTaskDragStart);
+        el.addEventListener("dragend", handleTaskDragEnd);
+        el.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          openModal(task.date || dateStr, task.id, task);
+        });
+        container.appendChild(el);
+      });
+
+      if (dayTasks.length > 3) {
+        const more = document.createElement("div");
+        more.className = "task more";
+        more.textContent = `+${dayTasks.length - 3} autres`;
+        container.appendChild(more);
+      }
+
+      cell.appendChild(container);
+    }
+
+    cell.addEventListener("dragenter", handleCalendarDragOver);
+    cell.addEventListener("dragover", handleCalendarDragOver);
+    cell.addEventListener("dragleave", handleCalendarDragLeave);
+    cell.addEventListener("drop", handleCalendarDrop);
+    cell.addEventListener("click", () => openDayTasksModal(dateStr));
+
+    calendar.appendChild(cell);
+  }
+}
+
+/* ================== Day tasks modal ================== */
+function openDayTasksModal(dateStr) {
+  try {
+    ensureAuthed();
+  } catch (err) {
+    calendar.innerHTML = "<div class='not-logged'>Connecte-toi pour voir le calendrier</div>";
+    return;
+  }
+  if (modalBg) modalBg.style.display = "none";
+  if (dayTasksBg) dayTasksBg.style.display = "flex";
+  if (dayTasksTitle) dayTasksTitle.textContent = `Devoirs du ${dateStr}`;
+  if (dayTasksList) dayTasksList.innerHTML = "";
+  state.selectedDate = dateStr;
+  refreshDayTasksList(dateStr);
+}
+
+dayTasksCloseBtn?.addEventListener("click", () => {
+  if (dayTasksBg) dayTasksBg.style.display = "none";
+});
+
+dayTasksAddBtn?.addEventListener("click", () => {
+  if (dayTasksBg) dayTasksBg.style.display = "none";
+  openModal(state.selectedDate);
+});
+
+async function refreshDayTasksList(dateStr) {
+  if (!state.currentUser) return;
+  try {
+    const base = collection(db, "devoirs");
+    const [byDateSnap, byReminderSnap] = await Promise.all([
+      getDocs(query(base, where("ownerUid", "==", state.currentUser.uid), where("date", "==", dateStr))),
+      getDocs(query(base, where("ownerUid", "==", state.currentUser.uid), where("rappelDate", "==", dateStr)))
+    ]);
+
+    const map = new Map();
+    byDateSnap.forEach((docSnap) => {
+      map.set(docSnap.id, docSnap.data());
+    });
+    byReminderSnap.forEach((docSnap) => {
+      map.set(docSnap.id, docSnap.data());
+    });
+
+    const entries = sortTasksForDisplay(
+      Array.from(map.entries()).map(([id, data]) => ({ id, ...data }))
+    );
+
+    const reminderGroupsForDay = new Set(
+      entries
+        .filter((task) => {
+          const isReminder = task.type === "rappel" || task.rappel;
+          const reminderDate = task.rappelDate || task.date;
+          return isReminder && reminderDate === dateStr;
+        })
+        .map((task) => task.groupId || task.id)
+    );
+
+    const filteredEntries = entries.filter((task) => {
+      const isDevoir = task.type === "devoir" || (!task.type && !task.rappel);
+      if (!isDevoir) return true;
+      const taskGroup = task.groupId || task.id;
+      if (!reminderGroupsForDay.has(taskGroup)) return true;
+      return task.date === dateStr;
+    });
+
+    if (dayTasksList) dayTasksList.innerHTML = "";
+    filteredEntries.forEach((task) => {
+      const div = document.createElement("div");
+      div.className = "day-task";
+      const entryType = task.type || (task.rappel ? "rappel" : "devoir");
+      if (entryType === "rappel") div.classList.add("rappel");
+      div.textContent = buildTaskLabel(task);
+      div.dataset.id = task.id;
+      div.dataset.groupId = task.groupId || task.id;
+      div.dataset.type = entryType;
+      div.draggable = true;
+      div.addEventListener("dragstart", handleTaskDragStart);
+      div.addEventListener("dragend", handleTaskDragEnd);
+      div.addEventListener("dblclick", () => {
+        if (dayTasksBg) dayTasksBg.style.display = "none";
+        openModal(task.date || dateStr, task.id, task);
+      });
+      dayTasksList?.appendChild(div);
+    });
+  } catch (err) {
+    console.error("refreshDayTasksList error:", err);
+  }
+}
+
+/* ================== Modal create/edit ================== */
+async function openModal(dateStr, docId = null, data = null) {
+  try {
+    ensureAuthed();
+  } catch (err) {
+    alert("Connecte-toi d'abord.");
+    return;
+  }
+
+  state.selectedDate = dateStr;
+  state.editingDocId = docId || null;
+  state.editingGroupId = data?.groupId || null;
+  state.editingGroupDocs = null;
+  state.preservedReminderOffset = null;
+  state.preservedReminderDate = null;
+  state.preservedReminderTime = null;
+
+  if (modalBg) modalBg.style.display = "flex";
+  if (modalTitle) modalTitle.textContent = docId ? "Editer un devoir" : "Ajouter un devoir";
+
+  let dueData = data || null;
+  let reminderData = null;
+
+  if (state.editingGroupId) {
+    state.editingGroupDocs = await loadGroupDocs(state.editingGroupId);
+    if (state.editingGroupDocs.devoir) {
+      dueData = {
+        ...state.editingGroupDocs.devoir.data,
+        id: state.editingGroupDocs.devoir.id
+      };
+      state.editingDocId = state.editingGroupDocs.devoir.id;
+    }
+    if (state.editingGroupDocs.rappel) {
+      reminderData = state.editingGroupDocs.rappel.data;
+    }
+  } else if (docId && (!data || !data.groupId)) {
+    const fetched = await fetchTaskDoc(docId);
+    if (fetched) {
+      const fetchedData = fetched.data;
+      if (fetchedData.groupId) {
+        state.editingGroupId = fetchedData.groupId;
+        state.editingGroupDocs = await loadGroupDocs(state.editingGroupId);
+        if (state.editingGroupDocs.devoir) {
+          dueData = {
+            ...state.editingGroupDocs.devoir.data,
+            id: state.editingGroupDocs.devoir.id
+          };
+          state.editingDocId = state.editingGroupDocs.devoir.id;
+        } else {
+          dueData = fetchedData;
+        }
+        reminderData = state.editingGroupDocs.rappel?.data || null;
+      } else {
+        dueData = fetchedData;
+      }
+    }
+  }
+
+  const dueDateStr =
+    dueData?.dueDate || dueData?.date || state.selectedDate || formatDate(new Date());
+  const heureStr = dueData?.heure || state.defaultHour || "18:00";
+
+  if (matiereInput) matiereInput.value = dueData?.matiere || "";
+  if (titreInput) titreInput.value = dueData?.titre || "";
+  if (dateInput) dateInput.value = dueDateStr;
+  if (heureInput) heureInput.value = heureStr;
+
+  let hasReminder = Boolean(
+    reminderData || dueData?.hasRappel || dueData?.rappel
+  );
+  if (!dueData && !reminderData && !state.editingDocId && !state.editingGroupId) {
+    hasReminder = true;
+  }
+  if (rappelCheckbox) rappelCheckbox.checked = hasReminder;
+
+  if (hasReminder) {
+    const dueBase = dueData?.dueDate || dueData?.date || dueDateStr;
+    const reminderDate = reminderData?.rappelDate || reminderData?.date || dueData?.rappelDate;
+    if (dueBase && reminderDate) {
+      state.preservedReminderOffset = diffInDays(dueBase, reminderDate);
+      state.preservedReminderDate = reminderDate;
+      state.preservedReminderTime = reminderData?.heure || heureStr;
+    }
+  }
+
+  if (deleteBtn) {
+    deleteBtn.style.display = docId || state.editingGroupId ? "inline-block" : "none";
+  }
+
+  try {
+    matiereInput?.focus();
+  } catch (_) {}
+}
+
+function closeModal() {
+  if (modalBg) modalBg.style.display = "none";
+  state.editingDocId = null;
+  state.editingGroupId = null;
+  state.editingGroupDocs = null;
+  state.preservedReminderOffset = null;
+  state.preservedReminderDate = null;
+  state.preservedReminderTime = null;
+  try {
+    taskForm?.reset();
+  } catch (_) {}
+  if (deleteBtn) deleteBtn.style.display = "none";
+}
+
+cancelBtn?.addEventListener("click", () => closeModal());
+
+deleteBtn?.addEventListener("click", async () => {
+  try {
+    ensureAuthed();
+  } catch (err) {
+    return;
+  }
+  try {
+    if (state.editingGroupId) {
+      await deleteGroup(state.editingGroupId);
+    } else if (state.editingDocId) {
+      await deleteDoc(doc(db, "devoirs", state.editingDocId));
+    }
+    closeModal();
+    await renderCalendar(state.currentYear, state.currentMonth);
+    if (state.selectedDate) {
+      await refreshDayTasksList(state.selectedDate);
+    }
+  } catch (err) {
+    console.error("Erreur suppression devoir:", err);
+    alert("Impossible de supprimer le devoir.");
+  }
+});
+
+taskForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    ensureAuthed();
+  } catch (err) {
+    alert("Connecte-toi d'abord.");
+    return;
+  }
+
+  const matiere = matiereInput?.value.trim();
+  const titre = titreInput?.value.trim();
+  const dateVal = dateInput?.value;
+  const heureVal = sanitizeHour(heureInput?.value);
+  const wantReminder = Boolean(rappelCheckbox?.checked);
+
+  if (!matiere || !titre || !dateVal) {
+    alert("Remplis tous les champs.");
+    return;
+  }
+
+  if (isBeforeToday(dateVal)) {
+    alert("Impossible de creer ou deplacer un devoir dans le passe.");
+    return;
+  }
+
+  let groupId = state.editingGroupId;
+  let groupDocs = state.editingGroupDocs;
+
+  if (!groupId && state.editingDocId) {
+    const fetched = await fetchTaskDoc(state.editingDocId);
+    if (fetched?.data?.groupId) {
+      groupId = fetched.data.groupId;
+      groupDocs = await loadGroupDocs(groupId);
+    }
+  }
+
+  if (!groupId) {
+    groupId = generateGroupId();
+  }
+  if (!groupDocs) {
+    groupDocs = await loadGroupDocs(groupId);
+  }
+
+  const dueEntry = groupDocs.devoir;
+  const reminderEntry = groupDocs.rappel;
+
+  const baseCommon = {
+    matiere,
+    titre,
+    heure: heureVal,
+    ownerUid: state.currentUser.uid
+  };
+
+  const dueParts = getDateParts(dateVal);
+  const duePayload = {
+    ...baseCommon,
+    date: dateVal,
+    dueDate: dateVal,
+    year: dueParts.year,
+    month: dueParts.month,
+    day: dueParts.day,
+    groupId,
+    type: "devoir",
+    rappel: false,
+    hasRappel: wantReminder,
+    rappelDate: null,
+    notified: false
+  };
+
+  let reminderPayload = null;
+
+  if (wantReminder) {
+    let offset = state.preservedReminderOffset;
+    let clamp = false;
+    if (!Number.isFinite(offset)) {
+      offset = Number(state.defaultReminder) || 0;
+      clamp = true;
+    }
+    const reminderDate = computeReminderDate(dateVal, offset, clamp);
+    let reminderParts = getDateParts(reminderDate);
+    const reminderTime = state.preservedReminderTime || heureVal;
+    if (isBeforeToday(reminderDate)) {
+      reminderDate = formatDate(startOfDay(new Date()));
+      reminderParts = getDateParts(reminderDate);
+    }
+    if (startOfDay(parseDate(reminderDate)) > startOfDay(parseDate(dateVal))) {
+      reminderDate = dateVal;
+      reminderParts = getDateParts(reminderDate);
+    }
+    reminderPayload = {
+      ...baseCommon,
+      date: reminderDate,
+      rappelDate: reminderDate,
+      dueDate: dateVal,
+      year: reminderParts.year,
+      month: reminderParts.month,
+      day: reminderParts.day,
+      timestampRappel: computeTimestamp(reminderDate, reminderTime),
+      groupId,
+      type: "rappel",
+      rappel: true,
+      notified: false,
+      heure: reminderTime
+    };
+    duePayload.rappelDate = reminderDate;
+  }
+
+  try {
+    let dueId = dueEntry?.id || state.editingDocId;
+    if (dueId) {
+      await updateDoc(doc(db, "devoirs", dueId), duePayload);
+    } else {
+      const added = await addDoc(collection(db, "devoirs"), duePayload);
+      dueId = added.id;
+    }
+
+    if (wantReminder && reminderPayload) {
+      if (reminderEntry) {
+        await updateDoc(doc(db, "devoirs", reminderEntry.id), reminderPayload);
+      } else {
+        await addDoc(collection(db, "devoirs"), reminderPayload);
+      }
+    } else if (reminderEntry) {
+      await deleteDoc(doc(db, "devoirs", reminderEntry.id));
+    }
+
+    closeModal();
+    await renderCalendar(state.currentYear, state.currentMonth);
+    if (state.selectedDate) {
+      await refreshDayTasksList(state.selectedDate);
+    }
+  } catch (err) {
+    console.error("Erreur sauvegarde devoir:", err);
+    alert("Erreur en sauvegardant le devoir.");
+  }
+});
+
+/* ================== Navigation ================== */
+prevMonthBtn?.addEventListener("click", () => {
+  let month = (state.currentMonth ?? new Date().getMonth()) - 1;
+  let year = state.currentYear ?? new Date().getFullYear();
+  if (month < 0) {
+    month = 11;
+    year -= 1;
+  }
+  renderCalendar(year, month);
+});
+
+nextMonthBtn?.addEventListener("click", () => {
+  let month = (state.currentMonth ?? new Date().getMonth()) + 1;
+  let year = state.currentYear ?? new Date().getFullYear();
+  if (month > 11) {
+    month = 0;
+    year += 1;
+  }
+  renderCalendar(year, month);
+});
+
+let touchStartX = 0;
+let touchEndX = 0;
+let swipeEnabled = true;
+let disableSwipeTemporarily = false;
+
+document.addEventListener(
+  "touchstart",
+  (event) => {
+    if (event.target.closest(".day-task") || event.target.closest(".task")) {
+      disableSwipeTemporarily = true;
+      return;
+    }
+    touchStartX = event.changedTouches[0].screenX;
+  },
+  false
+);
+
+document.addEventListener(
+  "touchend",
+  (event) => {
+    touchEndX = event.changedTouches[0].screenX;
+    handleSwipe();
+  },
+  false
+);
+
+function handleSwipe() {
+  if (!swipeEnabled) return;
+  if (disableSwipeTemporarily) {
+    disableSwipeTemporarily = false;
+    return;
+  }
+  const distance = touchEndX - touchStartX;
+  const threshold = window.innerWidth / 4;
+  if (distance > threshold) {
+    let month = (state.currentMonth ?? new Date().getMonth()) - 1;
+    let year = state.currentYear ?? new Date().getFullYear();
+    if (month < 0) {
+      month = 11;
+      year -= 1;
+    }
+    renderCalendar(year, month);
+    lockSwipe();
+  } else if (distance < -threshold) {
+    let month = (state.currentMonth ?? new Date().getMonth()) + 1;
+    let year = state.currentYear ?? new Date().getFullYear();
+    if (month > 11) {
+      month = 0;
+      year += 1;
+    }
+    renderCalendar(year, month);
+    lockSwipe();
+  }
+}
+
+function lockSwipe() {
+  swipeEnabled = false;
+  setTimeout(() => {
+    swipeEnabled = true;
+    disableSwipeTemporarily = false;
+  }, 500);
+}
+
+settingsBtn?.addEventListener("click", () => openParams());
+
+/* ================== Settings ================== */
+function openParams() {
+  try {
+    ensureAuthed();
+  } catch (err) {
+    alert("Connecte-toi d'abord.");
+    return;
+  }
+  if (paramsBg) paramsBg.style.display = "flex";
+  if (userIdInput) userIdInput.value = state.currentUserDoc?.ecoleUser || "";
+  if (defaultReminderInput) defaultReminderInput.value = state.currentUserDoc?.defaultReminder ?? state.defaultReminder ?? 1;
+  if (defaultHourInput) defaultHourInput.value = state.currentUserDoc?.defaultHour ?? state.defaultHour ?? "18:00";
+  if (userPassInput) userPassInput.value = state.currentUserDoc?.ecolePass || "";
+}
+
+paramsCancelBtn?.addEventListener("click", () => {
+  if (paramsBg) paramsBg.style.display = "none";
+});
+
+paramsForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    ensureAuthed();
+  } catch (err) {
+    alert("Connecte-toi d'abord.");
+    return;
+  }
+
+  const ecoleUser = userIdInput?.value.trim();
+  const ecolePassPlain = userPassInput?.value.trim();
+  const reminderVal = parseInt(defaultReminderInput?.value, 10);
+  const hourVal = sanitizeHour(defaultHourInput?.value);
+
+  if (!ecoleUser || !ecolePassPlain || Number.isNaN(reminderVal) || reminderVal < 0 || reminderVal > 365) {
+    alert("Remplis les parametres correctement (jours de rappel 0-365).");
+    return;
+  }
+
+  const data = {
+    ecoleUser,
+    ecolePass: ecolePassPlain,
+    defaultReminder: reminderVal,
+    defaultHour: hourVal
+  };
+
+  try {
+    await setDoc(doc(db, "users", state.currentUser.uid), data, { merge: true });
+    state.currentUserDoc = { ...(state.currentUserDoc || {}), ...data };
+    state.defaultReminder = reminderVal;
+    state.defaultHour = hourVal;
+    if (paramsBg) paramsBg.style.display = "none";
+    await renderCalendar(state.currentYear, state.currentMonth);
+  } catch (err) {
+    console.error("Erreur sauvegarde parametres:", err);
+    alert("Impossible d'enregistrer les parametres.");
+  }
+});
+
+async function loadUserSettingsOrAsk() {
+  ensureAuthed();
+  try {
+    const snap = await getDoc(doc(db, "users", state.currentUser.uid));
+    if (snap.exists()) {
+      state.currentUserDoc = snap.data();
+      state.defaultReminder = Number(state.currentUserDoc.defaultReminder ?? 1) || 1;
+      state.defaultHour = state.currentUserDoc.defaultHour || state.defaultHour || "18:00";
+    } else {
+      openParams();
+    }
+  } catch (err) {
+    console.error("Erreur lecture users/{uid}:", err);
+  }
+}
+
+export async function getEcoleCredentials() {
+  ensureAuthed();
+  const snap = await getDoc(doc(db, "users", state.currentUser.uid));
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  const identifiant = data.ecoleUser || "";
+  const motdepasse = data.ecolePass || "";
+  return { identifiant, motdepasse };
+}
+
+/* ================== Auth UI handlers ================== */
+loginSubmitBtn?.addEventListener("click", async () => {
+  const email = loginUserInput?.value.trim();
+  const pass = loginPassInput?.value.trim();
+  if (!email || !pass) {
+    alert("Email et mot de passe requis.");
+    return;
+  }
+  try {
+    await signInWithEmailAndPassword(auth, email, pass);
+    if (loginBg) loginBg.style.display = "none";
+  } catch (_) {
+    try {
+      await createUserWithEmailAndPassword(auth, email, pass);
+      if (loginBg) loginBg.style.display = "none";
+    } catch (err) {
+      console.error("Auth error:", err);
+      alert("Erreur connexion/inscription.");
+    }
+  }
+});
+
+loginGoogleBtn?.addEventListener("click", async () => {
+  try {
+    await signInWithPopup(auth, new GoogleAuthProvider());
+    if (loginBg) loginBg.style.display = "none";
+  } catch (err) {
+    console.error("Google login error:", err);
+    alert("Erreur login Google.");
+  }
+});
+
+/* ================== Service worker helper ================== */
+async function ensureServiceWorkerRegistered() {
+  try {
+    if (!("serviceWorker" in navigator)) return;
+    if (navigator.serviceWorker.controller) return;
+    const existing = await navigator.serviceWorker.getRegistration();
+    if (!existing) {
+      try {
+        await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+      } catch (err) {
+        console.warn("SW register depuis main.js a echoue:", err);
+      }
+    }
+    await navigator.serviceWorker.ready;
+  } catch (err) {
+    console.warn("ensureServiceWorkerRegistered failed:", err);
+  }
+}
+
+/* ================== Auth state ================== */
+onAuthStateChanged(auth, async (user) => {
+  state.authReady = true;
+  if (user) {
+    state.currentUser = user;
+    if (loginBg) loginBg.style.display = "none";
+    try {
+      await loadUserSettingsOrAsk();
+    } catch (err) {
+      console.warn("loadUserSettingsOrAsk failed:", err);
+    }
+    const now = new Date();
+    state.currentYear = now.getFullYear();
+    state.currentMonth = now.getMonth();
+    try {
+      await renderCalendar(state.currentYear, state.currentMonth);
+    } catch (err) {
+      console.error("renderCalendar error:", err);
+    }
+    await ensureServiceWorkerRegistered();
+  } else {
+    state.currentUser = null;
+    state.currentUserDoc = null;
+    if (loginBg) loginBg.style.display = "flex";
+    if (calendar) {
+      calendar.innerHTML = "<div class='not-logged'>Connecte-toi pour voir le calendrier</div>";
+    }
+    if (monthYear) monthYear.textContent = "";
+  }
+});
+
+/* ================== Trash interactions ================== */
+trashDiv?.addEventListener("mouseenter", () => trashDiv.classList.add("over"));
+trashDiv?.addEventListener("mouseleave", () => trashDiv.classList.remove("over"));
+trashDiv?.addEventListener("dragover", (event) => {
+  const hasData = Boolean(dragContext.id) || event.dataTransfer?.types?.includes("text/plain");
+  if (!hasData) return;
+  event.preventDefault();
+  trashDiv.classList.add("over");
+});
+trashDiv?.addEventListener("drop", handleTrashDrop);
+
+/* ================== Debug helpers ================== */
+window.__appDebug = {
+  encryptText,
+  decryptText,
+  logout: () => signOut(auth)
+};
+
+/* ================== Initial load ================== */
+(async () => {
+  await ensureServiceWorkerRegistered().catch(() => {});
+  if (auth.currentUser) {
+    state.currentUser = auth.currentUser;
+    state.authReady = true;
+    try {
+      await loadUserSettingsOrAsk();
+    } catch (err) {
+      console.error(err);
+    }
+    const now = new Date();
+    state.currentYear = now.getFullYear();
+    state.currentMonth = now.getMonth();
+    await renderCalendar(state.currentYear, state.currentMonth);
+  }
+})();
+
+/* ================== Test notification helper ================== */
+async function createImmediateTask() {
+  try {
+    ensureAuthed();
+  } catch (err) {
+    if (loginBg) loginBg.style.display = "flex";
+    return;
+  }
+  const now = Date.now() + 2 * 60 * 1000;
+  const when = new Date(now);
+  const dateStr = formatDate(when);
+  const heureStr = when.toTimeString().slice(0, 5);
+  const groupId = generateGroupId();
+  const parts = getDateParts(dateStr);
+  const base = {
+    matiere: "Test",
+    titre: "Notif immediate",
+    heure: heureStr,
+    ownerUid: state.currentUser.uid
+  };
+  const duePayload = {
+    ...base,
+    date: dateStr,
+    dueDate: dateStr,
+    year: parts.year,
+    month: parts.month,
+    day: parts.day,
+    groupId,
+    type: "devoir",
+    rappel: false,
+    hasRappel: true,
+    rappelDate: dateStr,
+    notified: false
+  };
+  const reminderPayload = {
+    ...base,
+    date: dateStr,
+    rappelDate: dateStr,
+    dueDate: dateStr,
+    year: parts.year,
+    month: parts.month,
+    day: parts.day,
+    timestampRappel: now,
+    groupId,
+    type: "rappel",
+    rappel: true,
+    notified: false
+  };
+  try {
+    await addDoc(collection(db, "devoirs"), duePayload);
+    await addDoc(collection(db, "devoirs"), reminderPayload);
+    alert(`Devoir test cree pour ${when.toLocaleString()}`);
+  } catch (err) {
+    console.error("Erreur creation devoir test:", err);
+    alert("Erreur creation devoir test.");
+  }
+}
+
+testNotifBtn?.addEventListener("click", () => {
+  createImmediateTask();
+});
+
+// Expose pour console
+window.__createImmediateTask = createImmediateTask;
+
+
+
+
+
+
+
+
+

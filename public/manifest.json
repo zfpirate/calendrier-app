@@ -1,0 +1,20 @@
+{
+  "name": "Calendrier Devoirs",
+  "short_name": "Calendrier",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#001f3f",
+  "icons": [
+    {
+      "src": "./icone-app-512.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "./icone-app-512.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}

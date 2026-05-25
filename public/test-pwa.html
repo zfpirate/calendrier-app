@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PWA iOS Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #0a0a0a; color: white; }
+        .status { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .success { background: #28a745; }
+        .info { background: #17a2b8; }
+        .warning { background: #ffc107; color: #000; }
+        button { margin: 5px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <h1>Test PWA iOS - Auto Refresh</h1>
+    
+    <div id="status"></div>
+    
+    <button onclick="testPWA()">Détecter PWA</button>
+    <button onclick="testSafeRefresh()">Test Safe Refresh</button>
+    <button onclick="testReload()">Test Reload Classique</button>
+    
+    <script>
+        // PWA Detection (copié depuis main.js)
+        const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                      (window.navigator.standalone === true) || 
+                      document.referrer.includes('android-app://');
+
+        function safeRefresh() {
+            if (!isPWA) {
+                console.log('Mode normal: location.reload()');
+                // location.reload(); // Pas de reload dans le test
+                updateStatus('Mode normal: location.reload() appelé', 'success');
+            } else {
+                console.log('Mode PWA: reloadData()');
+                reloadData();
+            }
+        }
+
+        function reloadData() {
+            updateStatus('Mode PWA: reloadData() appelé - pas de rechargement de page', 'info');
+            // Simuler un rechargement de données
+            setTimeout(() => {
+                updateStatus('Données rechargées avec succès', 'success');
+            }, 1000);
+        }
+
+        function testPWA() {
+            const userAgent = navigator.userAgent;
+            const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
+            const isAndroid = /Android/i.test(userAgent);
+            const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+            const isStandaloneIOS = window.navigator.standalone === true;
+            
+            let status = `Détection PWA:<br>`;
+            status += `- User Agent: ${userAgent}<br>`;
+            status += `- iOS: ${isIOS}<br>`;
+            status += `- Android: ${isAndroid}<br>`;
+            status += `- Standalone (CSS): ${isStandalone}<br>`;
+            status += `- Standalone (iOS): ${isStandaloneIOS}<br>`;
+            status += `- PWA détecté: ${isPWA}<br>`;
+            
+            updateStatus(status, isPWA ? 'success' : 'warning');
+        }
+
+        function testSafeRefresh() {
+            updateStatus('Test du safe refresh...', 'info');
+            safeRefresh();
+        }
+
+        function testReload() {
+            updateStatus('Test du reload classique (attention en PWA iOS!)', 'warning');
+            // location.reload(); // Pas de reload dans le test
+        }
+
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            const entry = document.createElement('div');
+            entry.className = `status ${type}`;
+            entry.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong><br>${message}`;
+            statusDiv.appendChild(entry);
+            statusDiv.scrollTop = statusDiv.scrollHeight;
+        }
+
+        // Test automatique au chargement
+        window.addEventListener('load', () => {
+            updateStatus('Page chargée - Test PWA iOS prêt', 'info');
+            testPWA();
+        });
+
+        // Test visibility change
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && isPWA) {
+                const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+                if (isIOS) {
+                    updateStatus('App visible en PWA iOS - refresh déclenché', 'info');
+                    reloadData();
+                }
+            }
+        });
+    </script>
+</body>
+</html>

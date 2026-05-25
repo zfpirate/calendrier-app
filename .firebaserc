@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "app-calendrier-d1a1d",
+    "dev": "app-calendrier-d1a1d"
+  },
+  "targets": {
+    "hosting": {
+      "app-calendrier-d1a1d": [
+        "app-calendrier-d1a1d"
+      ]
+    }
+  },
+  "etags": {}
+}

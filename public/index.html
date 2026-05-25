@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendrier Devoirs</title>
+
+  <!-- Styles et couleurs -->
+  <link rel="stylesheet" href="./style.css">
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#001f3f">
+  <meta name="background-color" content="#0a0a0a">
+
+  <!-- Favicon -->
+  <link rel="icon" href="./icone-app-192.jpg" type="image/jpeg">
+  <script>document.documentElement.classList.add('boot');</script>
+</head>
+<body>
+  <div id="ios-pwa-blocker" class="ios-pwa-blocker" role="alertdialog" aria-modal="true">
+    <div class="ios-pwa-blocker__card">
+      <h2>PWA iOS limitée</h2>
+      <p>
+        Cette version installée sur l’écran d’accueil sert uniquement aux notifications.
+        Pour naviguer normalement, ouvre l’app complète dans Safari.
+      </p>
+      <button id="ios-pwa-open-safari" class="save-btn">Ouvrir dans Safari</button>
+    </div>
+  </div>
+
+  <!-- Top bar -->
+  <div id="top-bar">
+    <div>
+      <button id="prev-month-btn" aria-label="Mois précédent">&lt;</button>
+      <span id="monthYear"></span>
+      <button id="next-month-btn" aria-label="Mois suivant">&gt;</button>
+    </div>
+    <div>
+      <button id="exam-mode-btn" title="Mode Examen">📚 Mode Examen</button>
+      <button id="settings-btn">Paramètres</button>
+      <button id="support-btn" title="Contacter le support" aria-label="Support">Support</button>
+      <button id="credits-btn" title="Crédits">Crédits</button>
+      <button id="cgu-btn" title="Conditions d'utilisation">CGU</button>
+      <button id="test-notif-btn" title="Créer un devoir de test dans 2 minutes">Test notif</button>
+      <button id="admin-panel-btn" style="display:none;" title="Panneau d'administration">Admin</button>
+      <span id="admin-controls" style="display:none;">
+        <span id="admin-status" class="admin-status"></span>
+      </span>
+    </div>
+  </div>
+
+  <!-- Calendrier -->
+  <div id="calendar"></div>
+
+  <!-- Modal ajout/édition de devoir -->
+  <div id="modal-bg" style="display:none;">
+    <div class="modal">
+      <h2 id="modal-title">Ajouter un devoir</h2>
+      <form id="taskForm" autocomplete="off">
+        <div class="form-group">
+          <label for="typeSelect">Type</label>
+          <select id="typeSelect" class="form-control">
+            <option value="devoir">Devoir</option>
+            <option value="evaluation">Évaluation</option>
+            <option value="conge">Congé/Événement</option>
+            <option value="rendezvous">Rendez-vous</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label for="matiere">Matière/Événement</label>
+          <input type="text" id="matiere" class="form-control" placeholder="Ex: Mathématiques, Réunion, etc." required>
+        </div>
+        
+        <div class="form-group">
+          <label for="titre">Détails</label>
+          <textarea id="titre" class="form-control" placeholder="Description détaillée du devoir ou de l'événement" rows="2" required></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label for="date">Date</label>
+          <input type="date" id="date" class="form-control" required>
+        </div>
+        
+        
+        
+        
+        <div class="form-group">
+          <label class="checkbox-container">
+            <input type="checkbox" id="rappel" checked>
+            <span class="checkmark"></span>
+            Créer un rappel
+          </label>
+        </div>
+        
+        <div id="reminder-options" style="margin-left: 20px; margin-bottom: 15px;">
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label for="rappel-time">Heure du rappel</label>
+              <input type="time" id="rappel-time" class="form-control" required>
+            </div>
+            
+            <div class="form-group" style="flex: 1;">
+              <label for="rappel-offset">Jours avant</label>
+              <select id="rappel-offset" class="form-control">
+                <option value="0">Le jour même</option>
+                <option value="1" selected>1 jour avant</option>
+                <option value="2">2 jours avant</option>
+                <option value="3">3 jours avant</option>
+                <option value="7">1 semaine avant</option>
+                <option value="custom">Date personnalisée</option>
+              </select>
+            </div>
+          </div>
+          
+          <div id="custom-date-container" class="form-group" style="display: none;">
+            <label for="rappel-date">Date du rappel</label>
+            <input type="date" id="rappel-date" class="form-control">
+          </div>
+        </div>
+        
+        <div class="modal-buttons">
+          <button type="submit" class="save-btn">Enregistrer</button>
+          <button type="button" id="cancel-btn" class="cancel-btn">Annuler</button>
+          <button type="button" id="delete-btn" class="delete-btn" style="display:none;">Supprimer</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Paramètres -->
+  <div id="params-bg" style="display:none;">
+    <div id="params">
+      <h2>Paramètres</h2>
+      
+      <!-- Onglets -->
+      <div class="params-tabs">
+        <button class="tab-btn active" data-tab="general">Général</button>
+        <button class="tab-btn" data-tab="customization">🎨 Personnalisation</button>
+        <button class="tab-btn" data-tab="blacklist">📁 Archive</button>
+      </div>
+      
+      <!-- Contenu des onglets -->
+      <div class="tab-content">
+        <!-- Onglet Général -->
+        <div id="general-tab" class="tab-pane active">
+          <form id="paramsForm" autocomplete="off">
+            <label for="userId">Identifiant</label>
+            <input type="text" id="userId" name="userId" placeholder="Ton ID">
+            <label for="userPass">Mot de passe</label>
+            <input type="password" id="userPass" name="userPass" placeholder="Ton mot de passe" autocomplete="current-password">
+            <button type="button" id="params-logout-btn" class="delete-btn" style="margin: 10px 0 14px;">Se déconnecter</button>
+            <label for="defaultReminder">Jours avant rappel (0 = même jour)</label>
+            <input type="number" id="defaultReminder" name="defaultReminder" min="0" max="7" required>
+            <label for="defaultHour">Heure par défaut du rappel</label>
+            <input type="time" id="defaultHour" name="defaultHour" required>
+            
+            <!-- Notifications -->
+            <div style="margin: 20px 0; padding: 15px; background: #1a1f2e; border-radius: 8px;">
+              <h4 style="margin: 0 0 10px 0; color: #cfe0ff;">🔔 Notifications</h4>
+              <label style="display: flex; align-items: center; margin: 10px 0;">
+                <input type="checkbox" id="force-desktop-notifications" style="margin-right: 10px;">
+                <span style="font-size: 14px;">Forcer les notifications sur ordinateur (même si mobile détecté)</span>
+              </label>
+              <p style="font-size: 12px; color: #8899aa; margin: 5px 0 0 0;">
+                Par défaut, les notifications sont prioritaires sur mobile pour éviter les doublons
+              </p>
+            </div>
+          </form>
+        </div>
+        
+        <!-- Onglet Archive -->
+        <div id="blacklist-tab" class="tab-pane">
+          <div class="blacklist-header">
+            <h3>📁 Archive des devoirs</h3>
+            <p class="blacklist-info">Retrouve ici tes devoirs et évaluations supprimés. Tu peux les restaurer si besoin.</p>
+          </div>
+          
+          <div id="blacklist-list" class="blacklist-list">
+            <div class="loading">Chargement de l'archive...</div>
+          </div>
+          
+          <div class="blacklist-actions">
+            <button id="clear-blacklist-btn" class="delete-btn">🗑️ Vider toute l'archive</button>
+          </div>
+        </div>
+        
+        <!-- Onglet Personnalisation -->
+        <div id="customization-tab" class="tab-pane">
+          <div class="customization-header">
+            <h3>🎨 Thème et apparence</h3>
+            <p class="customization-info">Personnalise l'apparence de ton calendrier</p>
+          </div>
+          
+          <!-- Mode clair/sombre -->
+          <div class="form-group">
+            <label>Mode d'affichage</label>
+            <div class="mode-selector">
+              <button type="button" class="mode-btn" data-mode="light" title="Clair">
+                <span class="mode-icon">☀️</span>
+                <span class="mode-label">Clair</span>
+              </button>
+              <button type="button" class="mode-btn" data-mode="dark" title="Sombre">
+                <span class="mode-icon">🌙</span>
+                <span class="mode-label">Sombre</span>
+              </button>
+              <button type="button" class="mode-btn active" data-mode="auto" title="Auto">
+                <span class="mode-icon">⚡</span>
+                <span class="mode-label">Auto</span>
+              </button>
+            </div>
+            <input type="hidden" id="theme-mode" value="auto">
+          </div>
+          
+          <!-- Thèmes prédéfinis -->
+          <div class="form-group">
+            <label>Thèmes prédéfinis</label>
+            <div class="theme-grid" id="theme-presets">
+              <button type="button" class="theme-card active" data-theme="default">
+                <span class="theme-preview default"></span>
+                <span class="theme-name">🌙 Par défaut</span>
+              </button>
+              <button type="button" class="theme-card" data-theme="light">
+                <span class="theme-preview light"></span>
+                <span class="theme-name">☀️ Clair</span>
+              </button>
+              <button type="button" class="theme-card" data-theme="ocean">
+                <span class="theme-preview ocean"></span>
+                <span class="theme-name">🌊 Océan</span>
+              </button>
+              <button type="button" class="theme-card" data-theme="forest">
+                <span class="theme-preview forest"></span>
+                <span class="theme-name">🌲 Forêt</span>
+              </button>
+              <button type="button" class="theme-card" data-theme="sunset">
+                <span class="theme-preview sunset"></span>
+                <span class="theme-name">🌅 Coucher de soleil</span>
+              </button>
+              <button type="button" class="theme-card" data-theme="midnight">
+                <span class="theme-preview midnight"></span>
+                <span class="theme-name">🌌 Minuit</span>
+              </button>
+              <button type="button" class="theme-card" data-theme="cyberpunk">
+                <span class="theme-preview cyberpunk"></span>
+                <span class="theme-name">⚡ Cyberpunk</span>
+              </button>
+              <button type="button" class="theme-card" data-theme="custom">
+                <span class="theme-preview custom"></span>
+                <span class="theme-name">🎨 Personnel</span>
+              </button>
+            </div>
+            <input type="hidden" id="theme-preset" value="default">
+          </div>
+          
+          <!-- Fond personnalisé -->
+          <div class="form-group">
+            <label for="theme-bg-type">Fond d'écran personnalisé</label>
+            <select id="theme-bg-type" class="form-control">
+              <option value="default">Utiliser le thème</option>
+              <option value="color">Couleur unie</option>
+              <option value="gradient">Dégradé</option>
+              <option value="image">Image</option>
+              <option value="gif">GIF animé</option>
+            </select>
+          </div>
+          
+          <!-- Options couleur unie -->
+          <div id="theme-color-options" class="background-options" style="display: none;">
+            <div class="form-group">
+              <label for="theme-solid-color">Couleur</label>
+              <div class="color-input-wrapper">
+                <input type="color" id="theme-solid-color" class="color-input" value="#0b1020">
+                <input type="text" id="theme-solid-hex" class="color-hex" value="#0b1020" placeholder="#000000">
+              </div>
+            </div>
+          </div>
+          
+          <!-- Options dégradé -->
+          <div id="theme-gradient-options" class="background-options" style="display: none;">
+            <div class="form-row">
+              <div class="form-group" style="flex: 1;">
+                <label for="theme-gradient-start">Départ</label>
+                <div class="color-input-wrapper">
+                  <input type="color" id="theme-gradient-start" class="color-input" value="#0b1020">
+                  <input type="text" id="theme-gradient-start-hex" class="color-hex" value="#0b1020">
+                </div>
+              </div>
+              <div class="form-group" style="flex: 1;">
+                <label for="theme-gradient-end">Fin</label>
+                <div class="color-input-wrapper">
+                  <input type="color" id="theme-gradient-end" class="color-input" value="#0a0f1a">
+                  <input type="text" id="theme-gradient-end-hex" class="color-hex" value="#0a0f1a">
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="theme-gradient-direction">Direction</label>
+              <select id="theme-gradient-direction" class="form-control">
+                <option value="180deg">Vertical (haut → bas)</option>
+                <option value="90deg">Horizontal (gauche → droite)</option>
+                <option value="45deg">Diagonal (↘)</option>
+                <option value="135deg">Diagonal (↙)</option>
+                <option value="radial">Radial (centre)</option>
+              </select>
+            </div>
+          </div>
+          
+          <!-- Options image/GIF -->
+          <div id="theme-media-options" class="background-options" style="display: none;">
+            <div class="form-group">
+              <label for="theme-media-url">URL</label>
+              <input type="url" id="theme-media-url" class="form-control" placeholder="https://example.com/image.jpg">
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="flex: 1;">
+                <label for="theme-media-size">Taille</label>
+                <select id="theme-media-size" class="form-control">
+                  <option value="cover">Couvrir</option>
+                  <option value="contain">Contenir</option>
+                  <option value="stretch">Étirer</option>
+                </select>
+              </div>
+              <div class="form-group" style="flex: 1;">
+                <label for="theme-media-repeat">Répétition</label>
+                <select id="theme-media-repeat" class="form-control">
+                  <option value="no-repeat">Non</option>
+                  <option value="repeat">Oui</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Aperçu -->
+          <div class="form-group">
+            <label>Aperçu</label>
+            <div id="theme-preview" class="background-preview"></div>
+          </div>
+          
+          <!-- Accordéon pour options avancées -->
+          <div class="theme-advanced">
+            <button type="button" class="accordion-toggle" id="advanced-toggle">
+              <span>⚙️ Options avancées</span>
+              <span class="accordion-icon">▼</span>
+            </button>
+            <div class="accordion-content" id="advanced-content" style="display: none;">
+              
+              <!-- Couleurs des cases -->
+              <div class="form-group">
+                <h4>📅 Cases du calendrier</h4>
+              </div>
+              <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-case-bg">Fond</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="theme-case-bg" class="color-input" value="#171b26">
+                    <input type="text" id="theme-case-hex" class="color-hex" value="#171b26">
+                  </div>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-case-border">Bordure</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="theme-case-border" class="color-input" value="#3a4259">
+                    <input type="text" id="theme-case-border-hex" class="color-hex" value="#3a4259">
+                  </div>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-case-text">Texte</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="theme-case-text" class="color-input" value="#cfe0ff">
+                    <input type="text" id="theme-case-text-hex" class="color-hex" value="#cfe0ff">
+                  </div>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-case-align">Alignement</label>
+                  <select id="theme-case-align" class="form-control">
+                    <option value="left">Gauche</option>
+                    <option value="center" selected>Centre</option>
+                    <option value="right">Droite</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-case-opacity">Opacité</label>
+                  <div class="opacity-slider-wrapper">
+                    <input type="range" id="theme-case-opacity" class="opacity-slider" min="0" max="100" value="95">
+                    <span id="theme-case-opacity-value" class="opacity-value">95%</span>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Couleurs des tâches -->
+              <div class="form-group">
+                <h4>📚 Couleurs des tâches</h4>
+              </div>
+              <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-devoir">Devoirs</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="theme-devoir" class="color-input" value="#4CAF50">
+                    <input type="text" id="theme-devoir-hex" class="color-hex" value="#4CAF50">
+                  </div>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-evaluation">Évaluations</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="theme-evaluation" class="color-input" value="#FF9800">
+                    <input type="text" id="theme-evaluation-hex" class="color-hex" value="#FF9800">
+                  </div>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-conge">Congés</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="theme-conge" class="color-input" value="#2196F3">
+                    <input type="text" id="theme-conge-hex" class="color-hex" value="#2196F3">
+                  </div>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-rendezvous">Rendez-vous</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="theme-rendezvous" class="color-input" value="#9C27B0">
+                    <input type="text" id="theme-rendezvous-hex" class="color-hex" value="#9C27B0">
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Couleurs des rappels -->
+              <div class="form-group">
+                <h4>⏰ Couleurs des rappels</h4>
+              </div>
+              <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-rappel-imminent">&lt; 24h</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="theme-rappel-imminent" class="color-input" value="#F44336">
+                    <input type="text" id="theme-rappel-imminent-hex" class="color-hex" value="#F44336">
+                  </div>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-rappel-proche">1-3 jours</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="theme-rappel-proche" class="color-input" value="#FF9800">
+                    <input type="text" id="theme-rappel-proche-hex" class="color-hex" value="#FF9800">
+                  </div>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-rappel-loin">&gt; 3 jours</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="theme-rappel-loin" class="color-input" value="#2196F3">
+                    <input type="text" id="theme-rappel-loin-hex" class="color-hex" value="#2196F3">
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Animations -->
+              <div class="form-group">
+                <h4>✨ Animations</h4>
+              </div>
+              <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                  <label>
+                    <input type="checkbox" id="theme-anim-enabled" checked> Activer
+                  </label>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-anim-speed">Vitesse</label>
+                  <select id="theme-anim-speed" class="form-control">
+                    <option value="slow">Lente</option>
+                    <option value="normal" selected>Normale</option>
+                    <option value="fast">Rapide</option>
+                  </select>
+                </div>
+              </div>
+              
+              <!-- Typographie -->
+              <div class="form-group">
+                <h4>📝 Affichage</h4>
+              </div>
+              <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                  <label for="theme-font-size">Taille texte</label>
+                  <select id="theme-font-size" class="form-control">
+                    <option value="small">Petite</option>
+                    <option value="medium" selected>Normale</option>
+                    <option value="large">Grande</option>
+                  </select>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label>
+                    <input type="checkbox" id="theme-compact"> Mode compact
+                  </label>
+                </div>
+              </div>
+              
+            </div>
+          </div>
+          
+          <!-- Actions -->
+          <div class="customization-actions">
+            <button type="button" id="theme-reset" class="cancel-btn">Réinitialiser</button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="modal-buttons">
+        <button type="submit" form="paramsForm" class="save-btn">Sauvegarder</button>
+        <button type="button" id="params-cancel-btn" class="cancel-btn">Annuler</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Crédits -->
+  <div id="credits-bg" style="display:none;">
+    <div class="modal">
+      <h2>Crédits</h2>
+      <p><strong>Créé par :</strong> Maxence Pirson</p>
+      <p>
+        <strong>Instagram :</strong>
+        <a id="insta-link" href="https://www.instagram.com/rnaxence/" target="_blank" rel="noopener noreferrer">✨マクサンス✨</a>
+      </p>
+      <p>
+        <strong>TikTok :</strong>
+        <a id="tiktok-link" href="https://www.tiktok.com/@zfrpirate" target="_blank" rel="noopener noreferrer">✨@ZFRPirate✨</a>
+      </p>
+      <p style="opacity:.8;">Cette application a été créée en partie avec ChatGPT.</p>
+      <p style="opacity:.8;">Pour toutes questions ou rapport de bug, veuillez contacter le support.</p>
+      <div class="modal-buttons">
+        <button type="button" id="credits-close-btn" class="cancel-btn">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Support -->
+  <div id="support-bg" style="display:none;">
+    <div class="modal">
+      <h2 style="color: #eaf2ff; margin-bottom: 5px;">Support</h2>
+      <p style="opacity: 0.9; margin-bottom: 20px; color: #b8c2e0;">Décris ton problème ou ta question, puis contacte‑moi sur Instagram/TikTok.</p>
+      
+      <div style="margin-bottom: 20px;">
+        <label for="support-type" style="display: block; margin-bottom: 8px; font-weight: 500; color: #eaf2ff; font-size: 14px;">Type de demande</label>
+        <div style="position: relative;">
+          <select id="support-type" class="support-select">
+            <option value="bug">🐞 Signaler un bug</option>
+            <option value="suggestion">💡 Suggestion d'amélioration</option>
+            <option value="question">❓ Question</option>
+            <option value="other">📝 Autre demande</option>
+          </select>
+        </div>
+      </div>
+      
+      <div style="margin-bottom: 20px;">
+        <label for="support-text" style="display: block; margin-bottom: 8px; font-weight: 500; color: #eaf2ff; font-size: 14px;">Description</label>
+        <textarea 
+          id="support-text" 
+          rows="6" 
+          style="
+            width: 100%;
+            min-height: 120px;
+            resize: vertical;
+            border-radius: 10px;
+            border: 1px solid #3a4259;
+            background: #1a2035;
+            color: #ffffff;
+            padding: 12px 16px;
+            font-size: 15px;
+            line-height: 1.5;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+          "
+          placeholder="Décris ton problème ou ta question en détail..."
+        ></textarea>
+      </div>
+      
+      <p>
+        <strong>Instagram :</strong>
+        <a id="support-insta" href="https://www.instagram.com/rnaxence/" target="_blank" rel="noopener noreferrer">✨マクサンス✨</a>
+      </p>
+      <p>
+        <strong>TikTok :</strong>
+        <a id="support-tiktok" href="https://www.tiktok.com/@zfrpirate" target="_blank" rel="noopener noreferrer">✨@ZFRPirate✨</a>
+      </p>
+      
+      <div class="modal-buttons">
+        <button type="button" id="support-copy" class="save-btn">Copier le message</button>
+        <button type="button" id="support-close-btn" class="cancel-btn">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Liste des devoirs du jour -->
+  <div id="dayTasks-bg" style="display:none;">
+    <div class="day-tasks">
+      <h2 id="dayTasks-title">Devoirs</h2>
+      <div id="dayTasks-list"></div>
+      <div class="modal-buttons">
+        <button id="dayTasks-add-btn" class="save-btn">Ajouter</button>
+        <button id="dayTasks-close-btn" class="cancel-btn">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Login -->
+  <div id="login-bg" style="display:none;">
+    <div class="login">
+      <h2>Connexion</h2>
+      <input type="email" id="loginUser" placeholder="Email Firebase" autocomplete="username">
+      <input type="password" id="loginPass" placeholder="Mot de passe" autocomplete="current-password">
+      <button id="loginSubmit" class="save-btn">Connexion / Créer compte</button>
+      <hr style="margin:15px 0; border-color:#444;">
+      <button id="loginGoogle" class="save-btn">Se connecter avec Google</button>
+    </div>
+  </div>
+
+  <!-- Mode Examen -->
+  <div id="exam-mode-bg" style="display:none;">
+    <div class="exam-mode">
+      <h2>📚 Mode Examen</h2>
+      
+      <!-- Onglets -->
+      <div class="exam-tabs">
+        <button class="exam-tab-btn active" data-tab="subjects">Matières</button>
+        <button class="exam-tab-btn" data-tab="schedule">Planning</button>
+        <button class="exam-tab-btn" data-tab="calendar">Calendrier</button>
+      </div>
+      
+      <!-- Contenu des onglets -->
+      <div class="exam-tab-content">
+        <!-- Onglet Matières -->
+        <div id="subjects-tab" class="exam-tab-pane active">
+          <div class="exam-section-header">
+            <h3>Tes matières à réviser</h3>
+            <button id="add-subject-btn" class="save-btn">+ Ajouter une matière</button>
+          </div>
+          <div id="subjects-list" class="subjects-list">
+            <div class="loading">Chargement...</div>
+          </div>
+        </div>
+        
+        <!-- Onglet Planning -->
+        <div id="schedule-tab" class="exam-tab-pane">
+          <div class="exam-section-header">
+            <h3>Ton planning de révision</h3>
+            <button id="add-schedule-btn" class="save-btn">+ Ajouter un créneau</button>
+          </div>
+          <div id="schedule-list" class="schedule-list">
+            <div class="loading">Chargement...</div>
+          </div>
+        </div>
+        
+        <!-- Onglet Calendrier -->
+        <div id="calendar-tab" class="exam-tab-pane">
+          <div class="exam-section-header">
+            <h3>Calendrier de révision</h3>
+          </div>
+          <div id="exam-calendar" class="exam-calendar">
+            <div class="loading">Chargement...</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="modal-buttons">
+        <button type="button" id="exam-mode-close-btn" class="cancel-btn">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal ajout/édition matière -->
+  <div id="subject-modal-bg" style="display:none;">
+    <div class="modal">
+      <h2 id="subject-modal-title">Ajouter une matière</h2>
+      <form id="subjectForm" autocomplete="off">
+        <div class="form-group">
+          <label for="subject-name">Nom de la matière</label>
+          <input type="text" id="subject-name" class="form-control" placeholder="Ex: Mathématiques" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="subject-topics">Ce que tu dois connaître (une ligne par sujet)</label>
+          <textarea id="subject-topics" class="form-control" placeholder="Ex:&#10;Chapitre 1: Les fonctions&#10;Chapitre 2: Les dérivées&#10;Chapitre 3: Les intégrales" rows="6"></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label for="subject-exam-date">Date de l'examen (optionnel)</label>
+          <input type="date" id="subject-exam-date" class="form-control">
+        </div>
+        
+        <div class="modal-buttons">
+          <button type="submit" class="save-btn">Enregistrer</button>
+          <button type="button" id="subject-cancel-btn" class="cancel-btn">Annuler</button>
+          <button type="button" id="subject-delete-btn" class="delete-btn" style="display:none;">Supprimer</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal ajout/édition créneau -->
+  <div id="schedule-modal-bg" style="display:none;">
+    <div class="modal">
+      <h2 id="schedule-modal-title">Ajouter un créneau</h2>
+      <form id="scheduleForm" autocomplete="off">
+        <div class="form-group">
+          <label for="schedule-subject">Matière</label>
+          <select id="schedule-subject" class="form-control" required>
+            <option value="">Sélectionne une matière</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label for="schedule-day">Jour</label>
+          <select id="schedule-day" class="form-control" required>
+            <option value="1">Lundi</option>
+            <option value="2">Mardi</option>
+            <option value="3">Mercredi</option>
+            <option value="4">Jeudi</option>
+            <option value="5">Vendredi</option>
+            <option value="6">Samedi</option>
+            <option value="0">Dimanche</option>
+          </select>
+        </div>
+        
+        <div class="form-row">
+          <div class="form-group" style="flex: 1;">
+            <label for="schedule-start">Heure de début</label>
+            <input type="time" id="schedule-start" class="form-control" required>
+          </div>
+          
+          <div class="form-group" style="flex: 1;">
+            <label for="schedule-end">Heure de fin</label>
+            <input type="time" id="schedule-end" class="form-control" required>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label for="schedule-topics">Sujets à réviser (optionnel)</label>
+          <textarea id="schedule-topics" class="form-control" placeholder="Sujets spécifiques pour ce créneau" rows="3"></textarea>
+        </div>
+        
+        <div class="modal-buttons">
+          <button type="submit" class="save-btn">Enregistrer</button>
+          <button type="button" id="schedule-cancel-btn" class="cancel-btn">Annuler</button>
+          <button type="button" id="schedule-delete-btn" class="delete-btn" style="display:none;">Supprimer</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- CGU consent (must accept once) -->
+  <div id="cgu-consent-bg" style="display:none;">
+    <div class="modal">
+      <h2>Conditions d’utilisation</h2>
+      <p style="opacity:.9;">Pour utiliser l’Application, tu dois accepter les Conditions Générales d’Utilisation.</p>
+      <p><a href="/cgu.html" target="_blank" rel="noopener noreferrer">Lire les CGU</a></p>
+      <div class="modal-buttons">
+        <button type="button" id="cgu-accept" class="save-btn">J’accepte</button>
+        <a href="/cgu.html" target="_blank" rel="noopener noreferrer" class="cancel-btn" id="cgu-view" style="text-align:center; display:inline-block; padding:12px 16px; border-radius:12px; font-weight:bold;">Voir les CGU</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Trash -->
+  <div id="trash" title="Dépose ici pour supprimer">🗑️</div>
+
+  <!-- Librairies -->
+
+  <!-- Scripts principaux -->
+  
+  <script>
+    (function(){
+      try {
+        const ua = navigator.userAgent || navigator.vendor || "";
+        const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        const isSamsung = /SM-|Samsung|Galaxy/i.test(ua);
+        const isGalaxyS = /(SM-G|Galaxy\s?S)/i.test(ua);
+        const isIphone = /iPhone/i.test(ua);
+        const iosMatch = ua.match(/iPhone.*OS\s(\d+)_/i);
+        const root = document.documentElement;
+        const update = () => {
+          const w = Math.min(window.innerWidth || 0, (screen && screen.width) || Infinity);
+          root.classList.toggle('is-mobile-width', w <= 768);
+          root.classList.toggle('is-ultra-narrow', w <= 430);
+          root.classList.toggle('is-flagship-large', w > 380 && w <= 440);
+          // Force horizontal layout on mobile widths
+          const isMobile = root.classList.contains('is-mobile-width');
+          const isTouchNow = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+          root.classList.toggle('force-horizontal', isTouchNow && isMobile);
+        };
+        if (isTouch) root.classList.add('is-touch');
+        if (isSamsung) root.classList.add('is-samsung');
+        if (isGalaxyS) root.classList.add('is-galaxy-s');
+        if (isIphone) {
+          root.classList.add('is-iphone');
+          if (iosMatch && iosMatch[1]) {
+            root.classList.add('ios-' + iosMatch[1]);
+          }
+        }
+        update();
+        window.addEventListener('resize', update);
+
+        // Zoom-out detection (mobile pinch zoom): add is-zoomed-out when scale < 1
+        const rootZoom = () => {
+          try {
+            const vv = window.visualViewport;
+            const scale = vv && typeof vv.scale === 'number' ? vv.scale : 1;
+            document.documentElement.classList.toggle('is-zoomed-out', scale < 1);
+          } catch {}
+        };
+        rootZoom();
+        if (window.visualViewport) {
+          visualViewport.addEventListener('resize', rootZoom);
+          visualViewport.addEventListener('scroll', rootZoom);
+        }
+        // Remove boot class once everything loaded
+        window.addEventListener('load', () => setTimeout(() => document.documentElement.classList.remove('boot'), 0));
+      } catch {}
+    })();
+  </script>
+  <script>
+    (function(){
+      const creditsBtn = document.getElementById('credits-btn');
+      const creditsBg = document.getElementById('credits-bg');
+      const creditsClose = document.getElementById('credits-close-btn');
+      if (creditsBtn && creditsBg) {
+        creditsBtn.addEventListener('click', () => { creditsBg.style.display = 'flex'; });
+      }
+      if (creditsClose) {
+        creditsClose.addEventListener('click', () => { creditsBg.style.display = 'none'; });
+      }
+      if (creditsBg) {
+        creditsBg.addEventListener('click', (e) => {
+          if (e.target === creditsBg) creditsBg.style.display = 'none';
+        });
+      }
+
+      // Support modal
+      const supportBtn = document.getElementById('support-btn');
+      const supportBg = document.getElementById('support-bg');
+      const supportClose = document.getElementById('support-close-btn');
+      const supportCopy = document.getElementById('support-copy');
+      const supportText = document.getElementById('support-text');
+      const supportType = document.getElementById('support-type');
+
+      const SUPPORT_TEMPLATES = {
+        bug: [
+          "Salut ! Je rencontre un bug sur l'app Calendrier :",
+          "- Écran / action concerné(e) :",
+          "- Description du problème :",
+          "- Étapes pour reproduire :",
+          "- Téléphone (marque / modèle) :",
+          "- Version (iOS / Android) :",
+          "Merci 🤝"
+        ].join('\n'),
+        suggestion: [
+          "Salut ! J'ai une idée d'amélioration pour l'app Calendrier :",
+          "- Fonctionnalité ou écran concerné :",
+          "- Ce que j'aimerais pouvoir faire :",
+          "- Pourquoi ce serait utile :",
+          "Merci pour ton travail 🙌"
+        ].join('\n'),
+        question: [
+          "Salut ! J'ai une question à propos de l'app Calendrier :",
+          "- Sujet / fonctionnalité :",
+          "- Question :",
+          "- Contexte (facultatif) :",
+          "Merci d'avance 🙏"
+        ].join('\n'),
+        other: [
+          "Salut ! Je voudrais te contacter pour :",
+          "- Sujet :",
+          "- Détails :",
+          "Merci et à bientôt "
+        ].join('\n')
+      };
+
+      const applySupportTemplate = (force = false) => {
+        if (!supportText) return;
+        const template = SUPPORT_TEMPLATES[supportType?.value] || SUPPORT_TEMPLATES.other;
+        if (force || !supportText.value.trim()) {
+          supportText.value = template;
+        }
+      };
+      if (supportBtn && supportBg) {
+        supportBtn.addEventListener('click', () => {
+          applySupportTemplate(true);
+          supportBg.style.display = 'flex';
+        });
+      }
+      if (supportClose) {
+        supportClose.addEventListener('click', () => { supportBg.style.display = 'none'; });
+      }
+      if (supportBg) {
+        supportBg.addEventListener('click', (e) => {
+          if (e.target === supportBg) supportBg.style.display = 'none';
+        });
+      }
+      if (supportCopy && supportText) {
+        supportCopy.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(supportText.value);
+            supportCopy.textContent = 'Copié !';
+            setTimeout(() => { supportCopy.textContent = 'Copier le message'; }, 1500);
+          } catch {}
+        });
+      }
+
+      if (supportType && supportText) {
+        supportType.addEventListener('change', () => applySupportTemplate(true));
+      }
+
+      // Mobile portrait: limit tasks to 4 bars and show +N badge
+      function shouldCompactBars(){
+        const mPortrait = window.matchMedia('(orientation: portrait)');
+        const html = document.documentElement;
+        if (html.classList.contains('force-horizontal')) return false;
+        return html.classList.contains('is-touch') && html.classList.contains('is-mobile-width') && mPortrait.matches;
+      }
+
+      function applyTaskOverflow(){
+        const compact = shouldCompactBars();
+        const containers = document.querySelectorAll('#calendar .tasks');
+        containers.forEach(c => {
+          // remove previous badge and reset hidden flags
+          const old = c.querySelector('.tasks-overflow');
+          if (old) old.remove();
+          const tasks = Array.from(c.querySelectorAll('.task'));
+          tasks.forEach(t => t.classList.remove('is-hidden'));
+          if (!compact) return;
+          const MAX = 4;
+          if (tasks.length > MAX) {
+            for (let i = MAX; i < tasks.length; i++) tasks[i].classList.add('is-hidden');
+            const badge = document.createElement('div');
+            badge.className = 'tasks-overflow';
+            badge.textContent = '+' + (tasks.length - MAX);
+            c.appendChild(badge);
+          }
+        });
+      }
+
+      // Observe calendar updates (month change, DnD, etc.)
+      const cal = document.getElementById('calendar');
+      if (cal && 'MutationObserver' in window) {
+        const obs = new MutationObserver(() => applyTaskOverflow());
+        obs.observe(cal, { childList: true, subtree: true });
+      }
+      window.addEventListener('resize', applyTaskOverflow);
+      window.addEventListener('orientationchange', applyTaskOverflow);
+      if (window.visualViewport) visualViewport.addEventListener('resize', applyTaskOverflow);
+      // initial run (after a tick to allow initial render)
+      setTimeout(applyTaskOverflow, 0);
+
+      // Delegated clicks to ensure it works after any DOM updates
+      document.addEventListener('click', (e) => {
+        const target = e.target;
+        if (target.closest && target.closest('#support-btn')) {
+          applySupportTemplate(true);
+          if (supportBg) supportBg.style.display = 'flex';
+        }
+        if (target.closest && target.closest('#support-close-btn')) {
+          if (supportBg) supportBg.style.display = 'none';
+        }
+        if (target.closest && target.closest('#credits-close-btn')) {
+          if (creditsBg) creditsBg.style.display = 'none';
+        }
+      });
+
+      // CGU one-time acceptance
+      const CGU_KEY = 'cguAccepted_2025-11-01';
+      const cguBg = document.getElementById('cgu-consent-bg');
+      const cguAccept = document.getElementById('cgu-accept');
+      const cguBtn = document.getElementById('cgu-btn');
+      function requireCGU(){
+        try {
+          if (localStorage.getItem(CGU_KEY) === 'true') return;
+        } catch {}
+        if (cguBg) cguBg.style.display = 'flex';
+      }
+      if (cguAccept) {
+        cguAccept.addEventListener('click', () => {
+          try { localStorage.setItem(CGU_KEY, 'true'); } catch {}
+          if (cguBg) cguBg.style.display = 'none';
+        });
+      }
+      if (cguBtn) {
+        cguBtn.addEventListener('click', () => {
+          window.open('/cgu.html', '_blank', 'noopener');
+        });
+      }
+      // Click outside closes? keep blocked; do not close on outside click
+      // Enforce at startup
+      requireCGU();
+    })();
+  </script>
+  <script>
+    // Optimisation mobile : précharger les éléments critiques
+    (function(){
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      if (isMobile) {
+        // Réduire le timeout de boot sur mobile
+        window.mobileBootOptimization = true;
+        
+        // Précharger les éléments DOM critiques
+        document.addEventListener('DOMContentLoaded', function() {
+          const criticalElements = ['calendar', 'monthYear', 'prev-month-btn', 'next-month-btn'];
+          criticalElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+              el.style.willChange = 'transform';
+              el.style.transform = 'translateZ(0)';
+            }
+          });
+        });
+      }
+    })();
+  </script>
+  <script type="module" src="/client.js?ver=2"></script>
+  <script type="module" src="/main.js?ver=91"></script>
+  
+</body>
+</html>

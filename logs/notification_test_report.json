@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-01-21T12:30:16.627282+00:00",
+  "tests": {
+    "service_worker": true,
+    "manifest_pwa": true,
+    "fcm_config": true,
+    "notification_flow": true
+  },
+  "test_notification": {
+    "notification": {
+      "title": "📚 Test notification",
+      "body": "Ceci est un test de notification background",
+      "icon": "icone-notif-192.jpg"
+    },
+    "data": {
+      "click_action": "/",
+      "type": "test",
+      "timestamp": "2026-01-21T12:30:16.629560+00:00"
+    }
+  }
+}

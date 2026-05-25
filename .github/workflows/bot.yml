@@ -1,0 +1,97 @@
+# name: Bot (7h et 17h Europe/Paris)
+
+# on:
+#   schedule:
+#     # Hiver (UTC+1)
+#     - cron: '0 6 * * *'    # 7:00 Europe/Paris en hiver (UTC+1)
+#     - cron: '0 16 * * *'   # 17:00 Europe/Paris en hiver (UTC+1)
+#     # Été (UTC+2)
+#     - cron: '0 5 * * *'    # 7:00 Europe/Paris en été (UTC+2)
+#     - cron: '0 15 * * *'   # 17:00 Europe/Paris en été (UTC+2)
+#   workflow_dispatch:
+#     inputs:
+#       forceRun:
+#         description: 'Exécuter maintenant (ignore l’heure 12:00)'
+#         required: false
+#         default: 'false'
+
+# permissions:
+#   contents: read
+
+# jobs:
+#   run-bot:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Vérifier l’heure Europe/Paris ou forceRun
+#         run: |
+#           FORCE="${{ github.event.inputs.forceRun }}"
+#           NOW=$(TZ=Europe/Paris date +'%H:%M')
+#           echo "forceRun=${FORCE} | Heure Europe/Paris=${NOW}"
+#           if [ "$FORCE" = "true" ]; then
+#             echo "forceRun=true -> on continue"
+#           elif [ "$NOW" != "12:00" ]; then
+#             echo "Pas l'heure (12:00), on sort."
+#             exit 0
+#           fi
+
+#       - name: Cloner le dépôt (sans actions externes)
+#         env:
+#           REPO: ${{ github.repository }}
+#           TOKEN: ${{ github.token }}
+#         run: |
+#           set -e
+#           git clone "https://x-access-token:${TOKEN}@github.com/${REPO}.git" src
+#           cd src
+#           if [ -n "${GITHUB_REF_NAME}" ]; then
+#             git checkout "${GITHUB_REF_NAME}" || true
+#           fi
+
+#       - name: Installer les dépendances
+#         working-directory: src
+#         run: |
+#           export PLAYWRIGHT_BROWSERS_PATH="$PWD/bot/playwright-browsers"
+#           python3 -m pip install --upgrade pip
+#           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+#           pip install firebase-admin playwright requests
+#           # Installer les browsers seulement s'ils ne sont pas déjà présents
+#           if [ ! -d "$PLAYWRIGHT_BROWSERS_PATH/chromium-1200" ]; then
+#             echo "Installation des browsers (non trouvés)"
+#             python3 -m playwright install --with-deps chromium
+#           else
+#             echo "Browsers déjà présents, installation sautée"
+#           fi
+#           echo "Browsers path: $PLAYWRIGHT_BROWSERS_PATH"
+#           ls -la "$PLAYWRIGHT_BROWSERS_PATH" || true
+
+#       - name: Préparer le secret Firebase
+#         working-directory: src
+#         env:
+#           FIREBASE_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_B64 }}
+#         run: |
+#           set -e
+#           if [ -n "${FIREBASE_SERVICE_ACCOUNT_JSON_B64}" ]; then
+#             echo "Décodage du secret JSON encodé en base64"
+#             echo "$FIREBASE_SERVICE_ACCOUNT_JSON_B64" | base64 -d > firebase-service-account.json
+#             python3 -c "import json; p='firebase-service-account.json'; txt=open(p,'rb').read().decode('utf-8-sig'); obj=json.loads(txt); open(p,'w',encoding='utf-8').write(json.dumps(obj)); print('Fichier de configuration Firebase créé avec succès')"
+#           else
+#             echo "Erreur : Aucun secret Firebase trouvé (FIREBASE_SERVICE_ACCOUNT_JSON_B64)"
+#             exit 1
+#           fi
+
+#       - name: Exécuter le bot
+#         working-directory: src
+#         run: |
+#           export PLAYWRIGHT_BROWSERS_PATH="$PWD/bot/playwright-browsers"
+#           echo "Browsers path at run: $PLAYWRIGHT_BROWSERS_PATH"
+#           ls -la "$PLAYWRIGHT_BROWSERS_PATH" || true
+#           xvfb-run -a python3 bot/login_bot.py \
+#             --service-account firebase-service-account.json \
+#             --firestore-collection users \
+#             --firestore-user-field ecoleUser \
+#             --firestore-pass-field ecolePass \
+#             --fast
+      
+#       - name: Vérifier Firestore (externalHomeworks)
+#         working-directory: src
+#         run: |
+#           python3 scripts/verify_firestore.py
